@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta2/css/all.min.css" integrity="sha512-YWzhKL2whUzgiheMoBFwW8CKV4qpHQAEuvilg9FAn5VJUDwKZZxkJNuGM4XkWuk94WCrrwslk8yWNGmY1EduTA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        *{
+            padding: 0px;
+            margin: 0px;
+        }
+
+        body{
+            background-image: url('./orqa_fon.png');
+            background-size: 100%;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: auto;
+        }   
+
+        .trainers_image_background{
+            width: 350px;
+            height: 400px;
+            background: linear-gradient(32deg, rgba(215,63,24,1) 0%, rgba(235,171,47,1) 100%);
+            transition: 3s;
+        }
+
+        .trainers_image_background:hover{   
+            height: 420px;
+            transition: 2s;
+            transform: 1.5;
+        }
+
+        .trainers_image_background_logo{
+            width: 100%;
+            height: 70px;
+            background-color: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .trainers_image_background:hover .fon_text{
+            color: rgb(255, 255, 255);
+            transition: 3s;
+            transform: 1.5;
+        }
+
+        .fon_text{
+            font-size: 150px;
+            color: rgba(255, 255, 255, 0.082);
+            font-family: sans-serif;
+            transition: 3s;
+        }
+        .image_trainer{
+            margin-left: -70px;
+            margin-top: -160px;
+            height: 300px;
+            width: 400px;
+            transition: 2s;
+        }
+
+        .trainers_image_background:hover .image_trainer{
+            margin-left: -170px;
+            transition: 2s;
+            transform: 1.5;
+        }
+
+        .info_div{
+            width: 380px;
+            height: 470px;
+            background: rgb(255,255,255);
+        }
+
+        .phone_image{
+            width: 350px;
+            height: 620px;
+            background-image: url('./phone.png');
+        }
+
+        .logo{
+            width: 50%;
+            height: 100%;
+            background: transparent;
+        }
+
+        .logo_tick{
+            width: 90px;
+            height: 30px;
+            margin: 15px 15px;
+        }
+
+        .logo_tick:hover{
+            width: 120px;
+            height: 40px;
+            transition: 1s;
+            transform: 1.5;
+        }
+
+        .share{
+            background: transparent;
+            width: 50%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+        }
+
+        .share_div{
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: white;
+            margin-left: 125px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .share_div:hover{
+            width: 45px;
+            height: 45px;
+            transition: 1s;
+            transform: 1.5;
+        }
+
+        .share_div>p>a>i{
+            color: rgb(229,91,53);
+        }
+
+        .text1{
+            width: 80%;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            font-family: Arial, Helvetica, sans-serif;
+            font-weight: 700;
+            margin: auto;
+            margin-top: 27px;
+            font-size: 15px;
+        }
+
+        .new_btn{
+            width: 45px;
+            height: 25px;
+            border-radius: 5px;
+            background: rgb(255,83,37);
+            margin-left: 10px;
+            border: none;
+            outline: none;
+            color: white;
+            font-size: 15px;
+            transition: 0.5s;
+            cursor: pointer;
+        }
+
+        .new_btn:hover{
+            width: 47px;
+            height: 30px;
+            transition: 0.035s;
+            transform: 1.5;
+        }
+
+        .text11{
+            width:80%;
+            height: 20px;
+            margin: auto;
+        }
+
+        .text11>strong>p{
+            font-size: 18px;
+            font-family: Arial, Helvetica, sans-serif;
+            font-weight: 600;
+            padding-top: 5px;
+            color: rgba(46, 40, 39, 0.692);
+        }
+
+        .chiziq{
+            width: 80%;
+            height: 1px;
+            background: rgb(230,230,230);
+            margin: auto;
+            margin-top: 20px;
+        }
+
+        .chiziq1{
+            width: 80%;
+            height: 1px;
+            background: rgb(230,230,230);
+            margin: auto;
+            margin-top: 40px;
+        }
+
+        .new_btn:hover .image_trainer{
+            display: none;
+            transition: 50s;
+        }
+        .text2{
+            font-family: sans-serif;
+            margin: auto;
+            width: 80%;
+            height: 20px;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+        }
+
+        .text_simple{
+            width: 80%;
+            height: 40px;
+            font-size: 16px;
+            font-family: sans-serif;
+            margin: auto;
+            color: rgb(72,75,74);
+            padding-top: 5px;
+        }
+
+        .btn1{
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            outline: none;
+            border: none;
+            background: rgb(29,120,239);
+            margin: 0px 6px;
+            cursor: pointer;
+        }
+
+        .btn1:hover{
+            width: 30px;
+            height: 30px;
+            transition: 0.5s;
+            transform: 1;
+        }
+
+        .btn2:hover{
+            width: 30px;
+            height: 30px;
+            transition: 0.5s;
+            transform: 1;
+        }
+
+        .btn3:hover{
+            width: 30px;
+            height: 30px;
+            transition: 0.5s;
+            transform: 1;
+        }
+
+        .btn4:hover{
+            width: 30px;
+            height: 30px;
+            transition: 0.5s;
+            transform: 1;
+        }
+
+        .btn4:hover{
+            width: 30px;
+            height: 30px;
+            transition: 0.5s;
+            transform: 1;
+        }
+
+        .btn5:hover{
+            width: 30px;
+            height: 30px;
+            transition: 0.5s;
+            transform: 1;
+        }
+
+        .btn2{
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            outline: none;
+            border: none;
+            background: rgb(245,75,70);
+            margin: 0px 6px;
+            cursor: pointer;
+        }
+
+        .btn3{
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            outline: none;
+            border: none;
+            background: rgb(46,187,104);
+            margin: 0px 6px;
+            cursor: pointer;
+        }
+
+        .btn4{
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            outline: none;
+            border: none;
+            background: rgb(245,90,41);
+            margin: 0px 6px;
+            cursor: pointer;
+        }
+
+        .btn5{
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            outline: none;
+            border: none;
+            background: rgb(68,68,68);
+            margin: 0px 6px;
+            cursor: pointer;
+
+        }
+
+        .btn1:focus{
+            box-shadow: 0px 0px 0px 6px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btn2:focus{
+            box-shadow: 0px 0px 0px 6px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btn3:focus{
+            box-shadow: 0px 0px 0px 6px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btn4:focus{
+            box-shadow: 0px 0px 0px 6px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btn5:focus{
+            box-shadow: 0px 0px 0px 6px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btn1:focus:hover{
+            width: 15px;
+            height: 15px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+        
+        .btn2:focus:hover{
+            width: 15px;
+            height: 15px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+
+        .btn3:focus:hover{
+            width: 15px;
+            height: 15px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+
+        .btn4:focus:hover{
+            width: 15px;
+            height: 15px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+
+        .btn5:focus:hover{
+            width: 15px;
+            height: 15px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+
+        .btnllar{
+            width: 80%;
+            height: 25px;
+            margin: auto;
+            margin-top: 10px;
+        }
+
+        .btn_size{
+            width: 40px;
+            height: 40px;
+            margin: 0px 6px;
+            background: rgb(238,238,236);
+            border: none;
+            outline: none;
+            border-radius: 5px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+
+        }
+
+        .btn_size:hover{
+            width: 40px;
+            height: 40px;
+            background: rgb(243,89,38);
+            color: white;
+        }
+
+        .btn_size:focus{
+            background: rgb(243,89,38);
+            color: white;
+        }
+
+        .add_to_card{
+            width: 80%;
+            height: 25px;
+            margin: auto;
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .add_btn{
+            width: 170px;
+            height: 43px;
+            font-size: 15px;
+            font-weight: bold;
+            color: white;
+            background: rgb(251,86,34);
+            border: none;
+            outline: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .add_btn:hover{
+            width: 180px;
+            height: 47px;
+            transition: 0.5s;
+            transform: 1;
+            margin-right: -10px
+        }
+
+        .supi{
+            font-family: sans-serif;
+            font-size: 20px;
+            color: rgb(49,54,58);
+            padding-left: 40px;
+        }
+
+        .add_to_card>h1{
+            color: rgb(49,54,58);
+            font-family: sans-serif;
+        }
+
+        .big_div_in_image{
+            width: 230px;
+            height: 420px;
+            background: white; 
+            margin-left: 0px;
+            margin-top: -20px;
+        }
+
+        .image_in_phone{
+            width: 100%;
+            height: 32%;
+            background: linear-gradient(32deg, rgba(215,63,24,1) 0%, rgba(235,171,47,1) 100%);
+            transition: 3s;            
+        }
+
+        .mini_logo{
+            width: 100%;
+            height: 20%;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .logo_tick_mini{
+            width: 50%;
+            height: 100%;
+            background: transparent;
+        }
+
+        .share_logo{
+            width: 50%;
+            height: 100%;
+            background: transparent;
+        }
+        
+        .picture{
+            width: 40%;
+            height: 60%;
+            margin: 4px 7px;
+        }
+
+        .circle{
+            width: 20px;
+            height: 20px;
+            background: white;
+            border-radius: 50%;
+            margin: 4px 90px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .circle>p>a>i{
+            text-decoration: none;
+            color: rgb(239,94,47);
+            font-size: 12px;
+        }
+
+        .image_trainerss{
+            width: 85%;
+            height: 140%;
+            margin-top: -130px;
+            margin-left: 20px;
+        }
+
+        .image_in_phone>h1{
+            color: rgba(255, 255, 255, 0.096);
+            font-size: 70px;
+            font-family: sans-serif;
+            padding-left: 10px;
+        }
+
+        .the_biggest{
+            width: 77%;
+            border-radius: 20px;
+            height: 87%;
+            background: rgb(243,244,246);
+            margin-top: 48px;
+            margin-left: 50px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .text_script>h5{
+            font-family: sans-serif;
+            font-weight: bold;
+            padding-right: 10px;
+        }
+
+        .div_collection{
+            width: 90%;
+            height: 60%;
+            margin: auto;
+            margin-top: 15px;
+        }
+
+        .text_script{
+            display: flex;
+            /* background: brown; */
+        }
+
+        .new2{
+            width: 35px;
+            height: 18px;
+            margin-top: -2px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+            background: rgb(239,90,34);
+            font-family: sans-serif;
+            border: none;
+            outline: none;
+            border-radius: 3px;
+        }
+
+        .text_running{
+            font-size: 11px;
+            color: rgb(95,92,83);
+            font-family: sans-serif;
+            margin-top: 5px;
+            width: 100%;
+            height: 20px;
+        }
+
+        .chiziqcha{
+            width: 100%;
+            height: 1px;
+            background: rgb(230,230,230);
+            margin: auto;
+        }
+
+        .product_info{
+            font-family: sans-serif;
+            font-size: 13px;
+            margin-top: 8px;
+        }
+
+        .simple_text1{
+            font-size: 11px;
+            font-family: sans-serif;
+            color: rgb(95,92,83);
+            margin-top: 3px;
+            margin-bottom: 5px;
+        }
+
+        .btnlar{
+            width: 100%;
+            height: 28px;
+            margin-top: 5px;
+        }
+
+        .btnn1{
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            border: none;
+            margin: 3px 5px;
+            background: rgb(28,119,241);
+        }
+
+        .btnn2{
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            border: none;
+            margin: 3px 5px;
+            background: rgb(243,76,66);
+        }
+
+        .btnn3{
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            border: none;
+            margin: 3px 5px;
+            background: rgb(46,185,101);
+        }
+
+        .btnn4{
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            border: none;
+            margin: 3px 5px;
+            background: rgb(251,82,31);
+        }
+
+        .btnn5{
+            width: 15px;
+            height: 15px;
+            border-radius: 50%;
+            border: none;
+            margin: 3px 5px;
+            background: rgb(68,68,68);
+        }
+
+        .btnn1:focus{
+            box-shadow: 0px 0px 0px 4px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btnn1:focus:hover{
+            width: 12px;
+            height: 12px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+
+        .btnn2:focus{
+            box-shadow: 0px 0px 0px 4px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btnn2:focus:hover{
+            width: 12px;
+            height: 12px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+
+        .btnn3:focus{
+            box-shadow: 0px 0px 0px 4px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btnn3:focus:hover{
+            width: 12px;
+            height: 12px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+
+        .btnn4:focus{
+            box-shadow: 0px 0px 0px 4px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btnn4:focus:hover{
+            width: 12px;
+            height: 12px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+
+        .btnn5:focus{
+            box-shadow: 0px 0px 0px 4px rgb(255,250,252),
+                        0px 0px 30px 5px gray;
+            
+            transition: 3660000s;
+        }
+
+        .btnn5:focus:hover{
+            width: 12px;
+            height: 12px;
+            transition: 0s;
+            margin-top: 0px;
+        }
+
+        .sizes{
+            height: 30px;
+            width: 90%;
+        }
+
+        .mini_size_btn{
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            border: none;
+            background: rgb(238,238,236);
+            margin: 4px 5px;
+            font-family: sans-serif;
+        }
+
+        .mini_size_btn:focus{
+            background: rgb(243,89,38);
+            color: white;
+        }
+
+        .adding_to_card{
+            height: 30px;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 5px;
+        }
+
+        .add_btn1{
+            width: 100px;
+            font-size: 10px;
+            height: 23px;
+            background: rgb(251,86,34);
+            color: white;
+            border: none;
+            border-radius: 3px;
+            margin-right: 65px;
+        }
+
+        .adding_to_card>h5{
+            padding-right: 0px;
+            font-size: 15px;
+            color: rgb(49,54,58);
+            font-family: sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div class="trainers_image_background">
+        <div class="trainers_image_background_logo">
+            <div class="logo">
+                <img class="logo_tick" src="./nike_PNG9.png" alt="">
+            </div>
+            <div class="share">
+                <div class="share_div"><p><a href="https://nike.com"><i class="fa-solid fa-share-nodes"></i></a></p></div>
+            </div>
+            
+        </div>
+        <h1 class="fon_text">NIKE</h1>
+        <img class="image_trainer" src="./krasovka-removebg-preview (1).png">
+    </div>
+
+    <div class="info_div">
+            <div class="text1">
+                <h1>Nike Zoom KD 12</h1>
+                <input type="button" class="new_btn" value="NEW">
+            </div>
+            <div class="text11">
+                <strong><p>Men's Running Shoes</p></strong>
+            </div>
+        
+            <div class="chiziq"></div>
+            <div class="text2">
+                <h3>PRODUCT INFO</h3>
+            </div>
+            <div class="text_simple">
+                <p>Lorem ipsum dolor sit amet consectetur adipisicing elit. Omnis sequi labore rerum tenetur illum sint distinctio, dolorem assumenda!</p>
+            </div>
+            <div class="chiziq1"></div>
+            <div class="text2"> 
+                <h3>COLOR</h3>
+            </div>
+            <div class="text2">
+                <button class="btn1"></button>
+                <button class="btn2"></button>
+                <button class="btn3"></button>
+                <button class="btn4"></button>
+                <button class="btn5"></button>
+            </div>
+            <div class="chiziq"></div>
+            <div class="text2">
+                <h3>SIZE</h3>
+            </div>
+            <div class="btnllar">
+                <input class="btn_size" type="button" value="7">
+                <input class="btn_size" type="button" value="8">
+                <input class="btn_size" type="button" value="9">
+                <input class="btn_size" type="button" value="10">
+                <input class="btn_size" type="button" value="11">
+            </div>
+            <div class="chiziq">
+
+            </div>
+            <div class="add_to_card">
+                <button class="add_btn"><i class="fa-solid fa-cart-shopping"></i> ADD TO CARD</button>
+                <h1><sup class="supi">$</sup>189.99</h1>
+            </div>
+    </div>
+
+    <div class="phone_image">
+       <div class="the_biggest">
+        <div class="big_div_in_image">
+            <div class="image_in_phone">
+                <div class="mini_logo">
+                    <div class="logo_tick_mini">
+                        <img class="picture" src="./nike_PNG9.png" alt="">
+                    </div>
+                    <div class="share_logo">
+                        <div class="circle"><p><a href="https://nike.com"><i class="fa-solid fa-share-nodes"></i></a></p></div>
+                    </div>
+                </div>
+                <h1>NIKE</h1>
+                <img class="image_trainerss" src="./small.png" alt="">
+            </div>
+            <div class="div_collection">
+                <div class="text_script">
+                    <h5>Nike Zoom KD 12</h5>
+                    <button class="new2">NEW</button>
+                </div>
+                <div class="text_running">
+                    <p>Men's Running Shoes</p>
+                </div>
+                <div class="chiziqcha">
+
+                </div>
+                <div class="product_info">
+                    <h5>PRODUCT INFO</h5>
+                </div>
+                <div class="simple_text1">
+                <p>Lorem ipsum dolor sit amet consectetur adipisicing elit. Omnis sequi labore rerum tenetur illum sint distinctio, dolorem assumenda!</p>
+                </div>
+                <div class="chiziqcha"></div>
+                <div class="product_info">
+                    <h5>COLOR</h5>
+                </div>
+                <div class="btnlar">
+                    <button class="btnn1"></button>
+                    <button class="btnn2"></button>
+                    <button class="btnn3"></button>
+                    <button class="btnn4"></button>
+                    <button class="btnn5"></button>
+
+                </div>
+                <div class="chiziqcha">
+
+                </div>
+                <div class="product_info">
+                    <h5>SIZE</h5>
+                </div>
+                <div class="sizes">
+                    <button class="mini_size_btn">7</button>
+                    <button class="mini_size_btn">8</button>
+                    <button class="mini_size_btn">9</button>
+                    <button class="mini_size_btn">10</button>
+                    <button class="mini_size_btn">11</button>
+                </div>
+                <div class="chiziqcha"></div>
+
+                <div class="adding_to_card">
+                    <button class="add_btn1"><i class="fa-solid fa-cart-shopping"></i> ADD TO CARD</button>
+                    <h5><sup class="supi1">$</sup>189.99</h5>
+                </div>
+            </div>
+        </div>
+       </div>
+    </div>
+</body>
+</html>

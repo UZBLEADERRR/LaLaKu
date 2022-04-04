@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta2/css/all.min.css" integrity="sha512-YWzhKL2whUzgiheMoBFwW8CKV4qpHQAEuvilg9FAn5VJUDwKZZxkJNuGM4XkWuk94WCrrwslk8yWNGmY1EduTA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        *{
+            padding: 0px;
+            margin: 0px;
+        }
+
+        body{
+            width: 100%;
+            height: 100vh;
+            background: rgb(53,53,53);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .main_window{
+            width: 350px;
+            height: 95%;
+            border-radius: 30px;
+            box-shadow: -15px 15px 0px rgb(37,37,37);
+        }
+
+        .step1_div{
+            width: 100%;
+            height: 50%;
+            border-radius: 30px 30px 0px 0px;
+            background: linear-gradient(305deg, rgb(150,35,38) 0%, rgb(245, 125, 34) 100%);
+        }
+
+        .step2_div{
+            width: 100%;
+            height: 50%;
+            border-radius: 0px 0px 30px 30px;
+            background: white;
+        }
+
+        .logo{
+            width: 40%;
+            height: 20%;
+        }
+
+        .logo_tick{
+            width: 52%;
+            height: 48%;
+            margin-left: 25px;
+            margin-top: 25px;
+        }
+
+        .back_text{
+            width: 86%;
+            height: 35%;
+            margin: auto;
+        }
+
+        .back_text>h1{
+            padding-top: 20px;
+            font-family: sans-serif;
+            color: white;
+            font-size: 23px;
+        }
+
+        .back_text>p{
+            padding-top: 10px;
+            font-family: sans-serif;
+            color: white;
+            font-size: 14px;
+        }
+
+        .text_fon{
+            width: 100%;
+            height: 50%;
+            margin-left: -10px;
+            margin-top: -8px;
+        }
+
+        .big_text{
+            font-size: 140px;
+            font-family: sans-serif;
+            padding: -20px -20px;
+            color: rgba(0, 0, 0, 0.096);
+            transition: 3s;
+        }   
+
+        .picture{
+            width: 100%;
+            height: 120%;
+            margin-top: -353px;
+            margin-left: 110px;
+            transition: 2s;
+        }
+
+        .step1_div:hover .picture{
+            margin-left: 300px;
+            transition: 2s;
+            transform: 1.5;
+        }
+
+        .step1_div:hover .big_text{
+            color: white;
+            transition: 3s;
+            transform: 1.5;
+        }
+
+        .hart_sport{
+            width: 87%;
+            height: 15%;
+            margin-top: 20px;
+            margin: auto;
+            display: flex;
+        }
+
+        .hart_sport>thin{
+            font-family: sans-serif;
+            padding: 24px 0px;
+            font-size: 20px;
+        }
+
+        .hart_sport>b{
+            font-weight: bold;
+            font-size: 20px;
+            font-family: sans-serif;
+            padding-right: 15px;
+            padding-top: 24px;
+        }
+
+        .new_btn{
+            margin-right: 70px;
+            width: 40px;
+            height: 20px;
+            border-radius: 5px;
+            border: none;
+            background: rgb(2,235,99);
+            color: white;
+            margin-top: 24px;
+            font-family: sans-serif;
+        }
+
+        .thin_text{
+            width: 87%;
+            margin: auto;
+            height: 10px;
+            font-size: 12px;
+            font-family: sans-serif;
+            margin-top: 5px;
+        }
+
+        .star{
+            width: 87%;
+            height: 10px;
+            color: black;
+            font-size: 3px;
+            margin: auto;
+        }
+
+        .star_click{
+            background: transparent;
+            border: none;
+            outline: none;
+            margin: 0px 1px;
+            margin-top: 12px;
+        }
+
+        .star_click:focus{
+            color: rgb(172,172,171);
+        }
+
+        .size_btn{
+            width: 87%;
+            height: 20px;
+            margin-top: 40px;
+            margin-left: 23px;
+        }
+
+        .size_manager{
+            width: 87%;
+            margin: auto;
+            height: 20px;
+        }
+
+        .size_number{
+            margin-top: 10px;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            margin-right: 10px;
+            border: none;
+        }
+
+        .size_number:focus{
+            background: rgb(233,84,51);
+            color: white;
+        }
+
+        .color_btn{
+            width: 87%;
+            height: 20px;
+            margin: auto;
+            margin-top: 30px;
+        }
+
+        .bttt1{
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: none;
+            background: rgb(243,95,75);
+            margin-right: 15px;
+            margin-left: 5px;
+        }
+
+        .bttt1:focus{
+            box-shadow: 0px 0px 0px 4px white,
+                        0px 0px 0px 5px rgb(243,95,75);
+        }
+
+        .bttt1:hover{
+            width: 25px;
+            height: 25px;
+            transition: 0.5s;
+            transform: 1.5;
+        }
+
+        .bttt2:hover{
+            width: 25px;
+            height: 25px;
+            transition: 0.5s;
+            transform: 1.5;
+        }
+
+        .bttt3:hover{
+            width: 25px;
+            height: 25px;
+            transition: 0.5s;
+            transform: 1.5;
+        }
+
+        .bttt2:focus{
+            box-shadow: 0px 0px 0px 4px white,
+                        0px 0px 0px 5px rgb(9,235,80);
+        }
+
+        .bttt3:focus{
+            box-shadow: 0px 0px 0px 4px white,
+                        0px 0px 0px 5px rgb(255,218,0);
+        }
+
+        .bttt2{
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: none;
+            background: rgb(9,235,80);
+            margin-right: 15px;
+        }
+
+        .bttt3{
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: none;
+            background: rgb(255,218,0);
+        }
+
+        .price_btn{
+            width: 50%;
+            height: 20%;
+            margin-top: -15px;
+        }
+
+        .price{
+            width: 220px;
+            height:60px;
+            color: white;
+            font-size: 25px;
+
+            margin-left: 160px;
+            margin-top: -40px;
+            margin-bottom: 100px;
+            border-radius: 10px;
+            border: none;
+            background: rgb(22,231,87);
+        }
+
+        .size_number:hover{
+            background: rgb(233,84,51);
+            color: white;
+        }
+
+        .price:hover{
+            width: 230px;
+            height: 70px;
+            transition: 0.5s;
+            transform: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="main_window">
+        <div class="step1_div">
+            <div class="logo">
+                <img class="logo_tick" src="./nike_PNG9.png" alt="">
+            </div>
+            <div class="back_text">
+                <h1>HARTBEESPOORT</h1>
+                <p>Support and Nike Zoom can give <br>   more supportive feel with a big <br> responsiveness</p>
+            </div>
+            <div class="text_fon">
+                <h2 class="big_text">FAST</h2>
+            </div>
+            <img class="picture" src="./project2.png" alt="">
+        </div>
+        <div class="step2_div">
+            <div class="hart_sport">
+                <thin>HARTBEE</thin><b>SPOORT</b>
+                <button class="new_btn">NEW</button>
+            </div>
+            <div class="thin_text">
+                <p>BASKET BALL COLLECTION</p>
+            </div>
+            <div class="star">
+                <button class="star_click"><i class="fa-solid fa-star"></i></button>
+                <button class="star_click"><i class="fa-solid fa-star"></i></button>
+                <button class="star_click"><i class="fa-solid fa-star"></i></button>
+                <button class="star_click"><i class="fa-solid fa-star"></i></button>
+                <button class="star_click"><i class="fa-solid fa-star"></i></button>
+            </div>
+            <div class="size_btn">
+                <b>SIZE</b>
+            </div>
+            <div class="size_manager">
+                <button class="size_number">7</button>
+                <button class="size_number">8</button>
+                <button class="size_number">9</button>
+                <button class="size_number">10</button>
+                <button class="size_number">11</button>
+            </div>
+            <div class="size_btn">
+                <b>COLOUR</b>
+            </div>
+            <div class="color_btn">
+                <button class="bttt1"></button>
+                <button class="bttt2"></button>
+                <button class="bttt3"></button>
+                
+            </div>
+            <div class="price_btn">
+                <button class="price"><thin>USD</thin> <b>23,453</b></button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
