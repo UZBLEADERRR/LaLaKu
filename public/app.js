@@ -2,9 +2,41 @@
 (() => {
   const $app = document.getElementById('app');
   const $nav = document.getElementById('bottom-nav');
-  const MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
-  const DOWS = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya'];
   const AVATAR_COLORS = ['#5b5bd6', '#0d9488', '#c2410c', '#be185d', '#7c3aed', '#0369a1', '#0a9f6d', '#e5484d'];
+  const LANG_NAMES = { uz: "O'zbekcha", en: 'English', ko: '한국어' };
+  const LOCALES = { uz: 'uz-UZ', en: 'en-US', ko: 'ko-KR' };
+  const TIMEZONES = [
+    ['Asia/Seoul', 'Seoul (Korea)'], ['Asia/Tokyo', 'Tokyo (Japan)'],
+    ['Asia/Shanghai', 'Shanghai (China)'], ['Asia/Tashkent', 'Tashkent (Uzbekistan)'],
+    ['Asia/Almaty', 'Almaty (Kazakhstan)'], ['Asia/Bishkek', 'Bishkek (Kyrgyzstan)'],
+    ['Asia/Dubai', 'Dubai (UAE)'], ['Europe/Istanbul', 'Istanbul (Turkey)'],
+    ['Europe/Moscow', 'Moscow (Russia)'], ['Europe/Berlin', 'Berlin (Germany)'],
+    ['Europe/London', 'London (UK)'], ['America/New_York', 'New York (USA)'],
+    ['America/Los_Angeles', 'Los Angeles (USA)'], ['UTC', 'UTC'],
+  ];
+
+  // ---------- Til ----------
+  let LANG = localStorage.getItem('lalaku_lang') || 'uz';
+  if (!window.I18N[LANG]) LANG = 'uz';
+  const t = (key, ...args) => {
+    const v = window.I18N[LANG][key] ?? window.I18N.uz[key] ?? key;
+    return typeof v === 'function' ? v(...args) : v;
+  };
+  const terr = (ex) => (ex.code && (window.I18N[LANG].err[ex.code] || window.I18N.uz.err[ex.code])) || ex.message || t('genericError');
+  const MONTHS = () => window.I18N[LANG].months;
+  const DOWS = () => window.I18N[LANG].dows;
+  const fmtMoney = (n) => new Intl.NumberFormat(LOCALES[LANG]).format(Math.round(n));
+
+  const langSelHtml = () => `
+    <select class="lang-sel" id="lang-sel" aria-label="Language">
+      ${Object.entries(LANG_NAMES).map(([k, v]) => `<option value="${k}" ${k === LANG ? 'selected' : ''}>${v}</option>`).join('')}
+    </select>`;
+  function bindLangSel() {
+    document.getElementById('lang-sel')?.addEventListener('change', (e) => {
+      localStorage.setItem('lalaku_lang', e.target.value);
+      location.reload();
+    });
+  }
 
   const ICONS = {
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>',
@@ -14,7 +46,7 @@
   };
 
   const state = {
-    me: null,                    // {role, id, name}
+    me: null,                    // {role, id, name, hourlyRate, taxPercent}
     month: null,                 // {year, month} — ko'rilayotgan oy
     selectedDay: null,
     view: 'home',                // ishchi: home | board | calendar
@@ -35,7 +67,11 @@
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Xatolik yuz berdi');
+    if (!res.ok) {
+      const e = new Error(data.error || t('genericError'));
+      e.code = data.code;
+      throw e;
+    }
     return data;
   }
 
@@ -53,13 +89,17 @@
     return AVATAR_COLORS[h % AVATAR_COLORS.length];
   };
   const initials = (name) => name.trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+  const dayTitle = (date) => {
+    const [, m, d] = date.split('-');
+    return LANG === 'ko' ? `${+m}월 ${+d}일` : LANG === 'en' ? `${MONTHS()[+m - 1]} ${+d}` : `${+d}-${MONTHS()[+m - 1].toLowerCase()}`;
+  };
 
   function toast(msg, type = '', ms = 3400) {
-    const t = document.getElementById('toast');
-    t.textContent = msg;
-    t.className = `toast ${type}`;
-    clearTimeout(t._timer);
-    t._timer = setTimeout(() => t.classList.add('hidden'), ms);
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = `toast ${type}`;
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.add('hidden'), ms);
   }
 
   function currentMonth() {
@@ -86,9 +126,9 @@
   function showNav(active) {
     $nav.classList.remove('hidden');
     $nav.innerHTML = `
-      <button data-v="home" class="${active === 'home' ? 'active' : ''}">${ICONS.home}<span>Bosh sahifa</span></button>
-      <button data-v="board" class="${active === 'board' ? 'active' : ''}">${ICONS.board}<span>Davomat</span></button>
-      <button data-v="calendar" class="${active === 'calendar' ? 'active' : ''}">${ICONS.calendar}<span>Kalendar</span></button>
+      <button data-v="home" class="${active === 'home' ? 'active' : ''}">${ICONS.home}<span>${{ uz: 'Bosh sahifa', en: 'Home', ko: '홈' }[LANG]}</span></button>
+      <button data-v="board" class="${active === 'board' ? 'active' : ''}">${ICONS.board}<span>${{ uz: 'Davomat', en: 'Attendance', ko: '출근 현황' }[LANG]}</span></button>
+      <button data-v="calendar" class="${active === 'calendar' ? 'active' : ''}">${ICONS.calendar}<span>${{ uz: 'Kalendar', en: 'Calendar', ko: '달력' }[LANG]}</span></button>
     `;
     $nav.querySelectorAll('button').forEach((b) =>
       b.addEventListener('click', () => {
@@ -122,6 +162,8 @@
     raf: null,
 
     async open(onCode) {
+      document.getElementById('scanner-hint').textContent = t('scanHint');
+      document.getElementById('scanner-cancel').textContent = t('scanCancel');
       this.el.classList.remove('hidden');
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
@@ -130,7 +172,7 @@
         });
       } catch {
         this.close();
-        toast('Kameraga ruxsat berilmadi. Brauzer sozlamalaridan kameraga ruxsat bering.', 'error', 5000);
+        toast(t('cameraDenied'), 'error', 5000);
         return;
       }
       this.video.srcObject = this.stream;
@@ -163,7 +205,7 @@
 
     close() {
       cancelAnimationFrame(this.raf);
-      this.stream?.getTracks().forEach((t) => t.stop());
+      this.stream?.getTracks().forEach((tr) => tr.stop());
       this.stream = null;
       this.video.srcObject = null;
       this.el.classList.add('hidden');
@@ -188,10 +230,10 @@
     const branchName = (id) => branches.find((b) => b.id === id)?.name || '';
 
     $app.innerHTML = `
-      <div class="topbar">${brandHtml('')}</div>
+      <div class="topbar">${brandHtml('')}${langSelHtml()}</div>
       <div class="hero-login">
-        <h1>Xush kelibsiz! 👋</h1>
-        <p>Ismingizni tanlab, parolingiz bilan kiring</p>
+        <h1>${t('welcome')}</h1>
+        <p>${t('choosePrompt')}</p>
       </div>
       <div class="worker-grid">
         ${workers.length ? workers.map((w) => `
@@ -199,13 +241,14 @@
             <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
             ${esc(w.name)}
             ${branches.length > 1 ? `<small>${esc(branchName(w.branchId))}</small>` : ''}
-          </button>`).join('') : `<div class="card" style="grid-column:1/-1"><p class="muted">Hozircha ishchilar qo'shilmagan. Admin panel orqali ishchi qo'shing.</p></div>`}
+          </button>`).join('') : `<div class="card" style="grid-column:1/-1"><p class="muted">${t('noWorkers')}</p></div>`}
       </div>
       <div class="login-links">
-        <button class="btn outline" id="go-board">📊 Davomat</button>
-        <button class="btn ghost" id="go-admin">Admin panel</button>
+        <button class="btn outline" id="go-board">${t('boardBtn')}</button>
+        <button class="btn ghost" id="go-admin">${t('adminBtn')}</button>
       </div>
     `;
+    bindLangSel();
     document.getElementById('go-admin').addEventListener('click', renderAdminLogin);
     document.getElementById('go-board').addEventListener('click', () => renderPublicBoard());
     document.querySelectorAll('.worker-item').forEach((btn) =>
@@ -221,15 +264,15 @@
       <div class="card" style="text-align:center;padding:28px 22px">
         <span class="avatar" style="background:${avatarColor(name)};margin:0 auto 12px;width:64px;height:64px;font-size:23px;display:flex;border-radius:22px">${esc(initials(name))}</span>
         <h2 style="margin-bottom:4px">${esc(name)}</h2>
-        <p class="muted">Parolingizni kiriting</p>
+        <p class="muted">${t('enterPassword')}</p>
         <form id="pw-form">
-          <label style="text-align:left">Parol</label>
+          <label style="text-align:left">${t('password')}</label>
           <input type="password" id="pw-input" autocomplete="current-password" inputmode="numeric">
           <div class="error-text" id="pw-error"></div>
-          <button class="btn" type="submit" style="margin-top:4px">Kirish</button>
+          <button class="btn" type="submit" style="margin-top:4px">${t('signIn')}</button>
         </form>
       </div>
-      <button class="btn ghost" id="back-btn">← Orqaga</button>
+      <button class="btn ghost" id="back-btn">${t('back')}</button>
     `;
     document.getElementById('back-btn').addEventListener('click', renderWorkerLogin);
     document.getElementById('pw-input').focus();
@@ -244,7 +287,7 @@
         state.view = 'home';
         renderWorkerView();
       } catch (ex) {
-        err.textContent = ex.message;
+        err.textContent = terr(ex);
       }
     });
   }
@@ -261,17 +304,72 @@
     return renderWorkerHome();
   }
 
+  // Maosh kartasi (oylik daromad hisobi)
+  function salaryCardHtml(totalMinutes) {
+    const rate = state.me.hourlyRate || 0;
+    const tax = state.me.taxPercent || 0;
+    const gearBtn = `<button class="chip gray" id="salary-gear">⚙️</button>`;
+    if (!rate) {
+      return `
+      <div class="card">
+        <div class="modal-head" style="margin-bottom:4px"><h2 style="margin:0">${t('salary')}</h2>${gearBtn}</div>
+        <p class="muted">${t('salaryHint')}</p>
+      </div>`;
+    }
+    const gross = totalMinutes / 60 * rate;
+    const taxAmt = gross * tax / 100;
+    const net = gross - taxAmt;
+    return `
+      <div class="card">
+        <div class="modal-head" style="margin-bottom:6px"><h2 style="margin:0">${t('salary')}</h2>${gearBtn}</div>
+        <div class="sal-row"><span class="muted">${t('gross')}</span><b>${fmtMoney(gross)}</b></div>
+        ${tax > 0 ? `<div class="sal-row"><span class="muted">${t('taxLabel', tax)}</span><b style="color:var(--red)">−${fmtMoney(taxAmt)}</b></div>` : ''}
+        <div class="sal-row net"><span>${t('net')}</span><b style="color:var(--green)">${fmtMoney(net)}</b></div>
+      </div>`;
+  }
+
+  function bindSalaryCard(rerender) {
+    document.getElementById('salary-gear')?.addEventListener('click', () => {
+      const modal = openModal(`
+        <div class="modal-head"><h2 style="margin:0">${t('salarySettings')}</h2><button class="modal-close" id="m-close">✕</button></div>
+        <p class="muted">${t('salaryHint')}</p>
+        <label>${t('hourlyRate')}</label>
+        <input type="number" id="s-rate" min="0" step="any" inputmode="decimal" value="${state.me.hourlyRate || ''}" placeholder="10030">
+        <label>${t('taxPercent')}</label>
+        <input type="number" id="s-tax" min="0" max="100" step="any" inputmode="decimal" value="${state.me.taxPercent || ''}" placeholder="3.3">
+        <div class="error-text" id="s-error"></div>
+        <button class="btn" id="s-save">${t('save')}</button>
+      `);
+      modal.querySelector('#m-close').addEventListener('click', closeModal);
+      modal.querySelector('#s-save').addEventListener('click', async () => {
+        const err = modal.querySelector('#s-error');
+        err.textContent = '';
+        try {
+          const hourlyRate = Number(modal.querySelector('#s-rate').value || 0);
+          const taxPercent = Number(modal.querySelector('#s-tax').value || 0);
+          await api('/api/my/settings', { method: 'PUT', body: { hourlyRate, taxPercent } });
+          state.me.hourlyRate = hourlyRate;
+          state.me.taxPercent = taxPercent;
+          toast(t('saved'), 'success');
+          closeModal();
+          rerender();
+        } catch (ex) { err.textContent = terr(ex); }
+      });
+    });
+  }
+
   async function renderWorkerHome() {
     let status, summary;
-    const { year, month } = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
+    const now = new Date();
+    const year = now.getFullYear(), month = now.getMonth() + 1;
     try {
       [status, summary] = await Promise.all([
         api('/api/my/status'),
         api(`/api/my/summary?year=${year}&month=${month}`),
       ]);
     } catch (ex) {
-      if (/kiring/i.test(ex.message)) return renderWorkerLogin();
-      toast(ex.message, 'error');
+      if (ex.code === 'AUTH') return renderWorkerLogin();
+      toast(terr(ex), 'error');
       return;
     }
 
@@ -282,37 +380,44 @@
     $app.innerHTML = `
       <div class="topbar">
         ${brandHtml(esc(state.me.name))}
-        <button class="chip gray" id="logout-btn">Chiqish</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${langSelHtml()}
+          <button class="chip gray" id="logout-btn">${t('logout')}</button>
+        </div>
       </div>
 
       <div class="hero ${status.checkedIn ? 'working' : ''}">
-        <span class="badge">${status.checkedIn ? '<span class="pulse-dot"></span> Siz ishdasiz' : '🌙 Siz ishda emassiz'}</span>
+        <span class="badge">${status.checkedIn ? `<span class="pulse-dot"></span> ${t('atWork')}` : t('offWork')}</span>
         <div class="big" id="status-time">${status.checkedIn ? '' : fmtH(todayMin)}</div>
         <div class="sub">${status.checkedIn
-          ? `Kelgan vaqtingiz: ${status.since}${status.sinceDate !== today ? ` (${status.sinceDate})` : ''}`
-          : (todayMin > 0 ? 'Bugun shuncha ishladingiz. Yaxshi dam oling!' : 'Ishga kelganingizda QR kodni skanerlang')}</div>
+          ? `${t('arrivedAt', status.since)}${status.sinceDate !== today ? ` (${status.sinceDate})` : ''}`
+          : (todayMin > 0 ? t('restMsg') : t('scanPrompt'))}</div>
       </div>
 
       <button class="scan-btn ${status.checkedIn ? 'leave' : 'arrive'}" id="scan-btn">
         ${ICONS.scan}
-        ${status.checkedIn ? 'Ketish — QR skanerlash' : 'Ishga keldim — QR skanerlash'}
+        ${status.checkedIn ? t('checkoutBtn') : t('checkinBtn')}
       </button>
 
       <div class="stat-row">
-        <div class="stat"><div class="value">${fmtH(todayMin)}</div><div class="label">Bugun ishlangan</div></div>
-        <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${MONTHS[month - 1]} jami</div></div>
+        <div class="stat"><div class="value">${fmtH(todayMin)}</div><div class="label">${t('workedToday')}</div></div>
+        <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthTotal', MONTHS()[month - 1])}</div></div>
       </div>
+
+      ${salaryCardHtml(summary.totalMinutes)}
 
       ${todayData ? `
       <div class="card">
-        <h2>Bugungi sessiyalar</h2>
+        <h2>${t('todaySessions')}</h2>
         ${todayData.sessions.map((s) => `
           <div class="session-row">
-            <span class="times">${s.in} → ${s.out || '<span style="color:var(--green)">ishda</span>'}</span>
-            <span class="dur">${fmtH(s.minutes)} soat</span>
+            <span class="times">${s.in} → ${s.out || `<span style="color:var(--green)">${t('working')}</span>`}</span>
+            <span class="dur">${fmtH(s.minutes)} ${t('hUnit')}</span>
           </div>`).join('')}
       </div>` : ''}
     `;
+    bindLangSel();
+    bindSalaryCard(renderWorkerView);
 
     if (status.checkedIn && status.sinceIso) {
       const started = new Date(status.sinceIso);
@@ -337,12 +442,10 @@
       scanner.open(async (code) => {
         try {
           const r = await api('/api/scan', { method: 'POST', body: { code } });
-          toast(r.action === 'in'
-            ? `✅ Xush kelibsiz! Kelish vaqti yozildi: ${r.time}`
-            : `👋 Yaxshi boring! Ketish vaqti yozildi: ${r.time}`, 'success', 4500);
+          toast(r.action === 'in' ? t('scanInOk', r.time) : t('scanOutOk', r.time), 'success', 4500);
           renderWorkerView();
         } catch (ex) {
-          toast(ex.message, 'error', 4500);
+          toast(terr(ex), 'error', 4500);
         }
       });
     });
@@ -355,16 +458,16 @@
     try {
       summary = await api(`/api/my/summary?year=${year}&month=${month}`);
     } catch (ex) {
-      if (/kiring/i.test(ex.message)) return renderWorkerLogin();
-      toast(ex.message, 'error');
+      if (ex.code === 'AUTH') return renderWorkerLogin();
+      toast(terr(ex), 'error');
       return;
     }
 
     $app.innerHTML = `
-      <div class="topbar">${brandHtml(esc(state.me.name))}</div>
+      <div class="topbar">${brandHtml(esc(state.me.name))}${langSelHtml()}</div>
       <div class="stat-row">
-        <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${MONTHS[month - 1]} jami soat</div></div>
-        <div class="stat"><div class="value">${Object.values(summary.days).filter((d) => d.minutes > 0 || d.open).length}</div><div class="label">Ishlangan kunlar</div></div>
+        <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthHours', MONTHS()[month - 1])}</div></div>
+        <div class="stat"><div class="value">${Object.values(summary.days).filter((d) => d.minutes > 0 || d.open).length}</div><div class="label">${t('daysWorked')}</div></div>
       </div>
       <div class="card">
         ${calendarHtml(summary, year, month)}
@@ -372,7 +475,10 @@
           ${state.selectedDay ? dayDetailHtml(summary, state.selectedDay) : ''}
         </div>
       </div>
+      ${salaryCardHtml(summary.totalMinutes)}
     `;
+    bindLangSel();
+    bindSalaryCard(renderWorkerView);
 
     bindCalendarNav(renderWorkerView);
     bindCalendarCells((date) => {
@@ -391,7 +497,7 @@
     const daysInMonth = new Date(year, month, 0).getDate();
     const lead = (first.getDay() + 6) % 7; // dushanbadan boshlanadi
     const today = todayStr();
-    let cells = DOWS.map((d) => `<div class="cal-dow">${d}</div>`).join('');
+    let cells = DOWS().map((d) => `<div class="cal-dow">${d}</div>`).join('');
     for (let i = 0; i < lead; i++) cells += `<div class="cal-cell empty"></div>`;
     for (let d = 1; d <= daysInMonth; d++) {
       const date = `${year}-${pad(month)}-${pad(d)}`;
@@ -406,12 +512,13 @@
         <div class="h">${dd && dd.minutes > 0 ? fmtH(dd.minutes) : ''}</div>
       </div>`;
     }
+    const title = LANG === 'ko' ? `${year}년 ${MONTHS()[month - 1]}` : `${MONTHS()[month - 1]} ${year}`;
     return `
       <div class="cal-head">
-        <div class="cal-title">${MONTHS[month - 1]} ${year}</div>
+        <div class="cal-title">${title}</div>
         <div class="cal-nav">
-          <button id="cal-prev" aria-label="Oldingi oy">‹</button>
-          <button id="cal-next" aria-label="Keyingi oy">›</button>
+          <button id="cal-prev" aria-label="prev">‹</button>
+          <button id="cal-next" aria-label="next">›</button>
         </div>
       </div>
       <div class="cal-grid">${cells}</div>
@@ -420,14 +527,12 @@
 
   function dayDetailHtml(summary, date) {
     const dd = summary.days[date];
-    const [, m, d] = date.split('-');
-    const title = `${+d}-${MONTHS[+m - 1].toLowerCase()}`;
-    if (!dd) return `<b>${title}</b><p class="muted" style="margin-top:6px">Bu kunda yozuvlar yo'q</p>`;
-    return `<b>${title}</b> — jami <b style="color:var(--green)">${fmtH(dd.minutes)}</b> soat${dd.open ? ' <span style="color:var(--amber)">(davom etmoqda)</span>' : ''}
+    if (!dd) return `<b>${dayTitle(date)}</b><p class="muted" style="margin-top:6px">${t('noRecords')}</p>`;
+    return `<b>${dayTitle(date)}</b> — ${t('total')} <b style="color:var(--green)">${fmtH(dd.minutes)}</b> ${t('hUnit')}${dd.open ? ` <span style="color:var(--amber)">(${t('ongoing')})</span>` : ''}
       ${dd.sessions.map((s) => `
         <div class="session-row">
-          <span class="times">${s.in} → ${s.out || '<span style="color:var(--green)">ishda</span>'}</span>
-          <span class="dur">${fmtH(s.minutes)} soat</span>
+          <span class="times">${s.in} → ${s.out || `<span style="color:var(--green)">${t('working')}</span>`}</span>
+          <span class="dur">${fmtH(s.minutes)} ${t('hUnit')}</span>
         </div>`).join('')}`;
   }
 
@@ -456,15 +561,19 @@
 
     $app.innerHTML = `
       <div class="topbar">
-        ${brandHtml('Davomat nazorati')}
-        ${isPublic ? '<button class="chip gray" id="back-btn">← Kirish</button>' : ''}
+        ${brandHtml(t('attendance'))}
+        <div style="display:flex;gap:8px;align-items:center">
+          ${langSelHtml()}
+          ${isPublic ? `<button class="chip gray" id="back-btn">${t('loginLink')}</button>` : ''}
+        </div>
       </div>
       <div class="segment">
-        <button data-m="today" class="${state.boardMode === 'today' ? 'active' : ''}">Bugun</button>
-        <button data-m="month" class="${state.boardMode === 'month' ? 'active' : ''}">Oylik</button>
+        <button data-m="today" class="${state.boardMode === 'today' ? 'active' : ''}">${t('today')}</button>
+        <button data-m="month" class="${state.boardMode === 'month' ? 'active' : ''}">${t('month')}</button>
       </div>
       <div id="board-content"><div class="loading-screen" style="padding-top:60px"><div class="spinner"></div></div></div>
     `;
+    bindLangSel();
     if (isPublic) document.getElementById('back-btn').addEventListener('click', renderWorkerLogin);
     document.querySelectorAll('.segment button').forEach((b) =>
       b.addEventListener('click', () => {
@@ -486,7 +595,7 @@
         await renderBoardMonth(container());
       }
     } catch (ex) {
-      container().innerHTML = `<div class="card"><p class="error-text">${esc(ex.message)}</p></div>`;
+      container().innerHTML = `<div class="card"><p class="error-text">${esc(terr(ex))}</p></div>`;
     }
   }
 
@@ -495,13 +604,12 @@
     const multi = data.branches.length > 1;
     const branchChips = multi ? `
       <div class="branch-chips">
-        <button class="branch-chip ${state.boardBranch === 0 ? 'active' : ''}" data-b="0">Hammasi</button>
+        <button class="branch-chip ${state.boardBranch === 0 ? 'active' : ''}" data-b="0">${t('all')}</button>
         ${data.branches.map((b) => `<button class="branch-chip ${state.boardBranch === b.id ? 'active' : ''}" data-b="${b.id}">${esc(b.name)}</button>`).join('')}
       </div>` : '';
 
     const filtered = data.workers.filter((w) => !state.boardBranch || w.branchId === state.boardBranch);
     const atWork = filtered.filter((w) => w.status === 'in').length;
-    const [y, m, d] = data.date.split('-');
 
     const rowHtml = (w) => `
       <div class="board-row ${w.status === 'in' ? 'working' : ''}">
@@ -509,14 +617,14 @@
         <div class="info">
           <div class="name">${esc(w.name)}</div>
           <div class="meta">
-            ${w.status === 'in' ? `<span class="status-tag in"><span class="pulse-dot"></span>Ishda</span> ${w.since} dan beri`
-              : w.status === 'out' ? `<span class="status-tag out">Ketgan</span> ${w.since} da kelgan edi`
-              : `<span class="status-tag none">Kelmagan</span>`}
+            ${w.status === 'in' ? `<span class="status-tag in"><span class="pulse-dot"></span>${t('inTag')}</span> ${t('sinceTime', w.since)}`
+              : w.status === 'out' ? `<span class="status-tag out">${t('leftTag')}</span> ${t('arrivedTime', w.since)}`
+              : `<span class="status-tag none">${t('absentTag')}</span>`}
           </div>
         </div>
         <div class="hours">
           <div class="v">${fmtH(w.minutes)}</div>
-          <div class="l">soat bugun</div>
+          <div class="l">${t('hToday')}</div>
         </div>
       </div>`;
 
@@ -532,9 +640,9 @@
     }
 
     box.innerHTML = `
-      <div class="board-date">${+d}-${MONTHS[+m - 1].toLowerCase()} ${y} · soat ${data.time} · <b style="color:var(--green)">${atWork} kishi ishda</b></div>
+      <div class="board-date">${dayTitle(data.date)} · ${data.time} · <b style="color:var(--green)">${t('atWorkCount', atWork)}</b></div>
       ${branchChips}
-      ${listHtml || `<div class="card"><p class="muted">Ishchilar yo'q</p></div>`}
+      ${listHtml || `<div class="card"><p class="muted">${t('noWorkers')}</p></div>`}
     `;
     box.querySelectorAll('.branch-chip').forEach((c) =>
       c.addEventListener('click', () => { state.boardBranch = +c.dataset.b; renderBoardToday(box); })
@@ -559,14 +667,14 @@
 
     const branchChips = multi ? `
       <div class="branch-chips">
-        <button class="branch-chip ${branch === 0 ? 'active' : ''}" data-b="0">Hammasi</button>
+        <button class="branch-chip ${branch === 0 ? 'active' : ''}" data-b="0">${t('all')}</button>
         ${data.branches.map((b) => `<button class="branch-chip ${branch === b.id ? 'active' : ''}" data-b="${b.id}">${esc(b.name)}</button>`).join('')}
       </div>` : '';
 
     const headCells = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const dow = new Date(year, month - 1, d).getDay();
-      headCells.push(`<th class="${dow === 0 || dow === 6 ? 'wknd' : ''}">${d}<br><span style="font-weight:700;opacity:.75">${DOWS[(dow + 6) % 7]}</span></th>`);
+      headCells.push(`<th class="${dow === 0 || dow === 6 ? 'wknd' : ''}">${d}<br><span style="font-weight:700;opacity:.75">${DOWS()[(dow + 6) % 7]}</span></th>`);
     }
 
     const rows = workers.map((w) => {
@@ -578,19 +686,20 @@
         cells += `<td class="${cls}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${dd ? fmtH(dd.minutes) : '·'}</td>`;
       }
       return `<tr>
-        <td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}${w.active ? '' : '<span class="badge-inactive">nofaol</span>'}</td>
+        <td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}${w.active ? '' : `<span class="badge-inactive">${t('inactive')}</span>`}</td>
         ${cells}
         <td class="total-col">${fmtH(w.totalMinutes)}</td>
       </tr>`;
     }).join('');
 
     const grandTotal = workers.reduce((a, w) => a + w.totalMinutes, 0);
+    const title = LANG === 'ko' ? `${year}년 ${MONTHS()[month - 1]}` : `${MONTHS()[month - 1]} ${year}`;
 
     return `
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:16px 18px">
-        <div class="cal-title">${MONTHS[month - 1]} ${year}</div>
+        <div class="cal-title">${title}</div>
         <div style="display:flex;align-items:center;gap:12px">
-          <span class="muted">Umumiy: <b style="color:var(--accent)">${fmtH(grandTotal)}</b> soat</span>
+          <span class="muted">${t('grandTotal')}: <b style="color:var(--accent)">${fmtH(grandTotal)}</b> ${t('hUnit')}</span>
           <div class="cal-nav">
             <button id="cal-prev">‹</button>
             <button id="cal-next">›</button>
@@ -601,14 +710,12 @@
       ${workers.length ? `
       <div class="table-wrap">
         <table class="summary">
-          <thead><tr><th class="name-col">Ishchi</th>${headCells.join('')}<th class="total-col">Jami</th></tr></thead>
+          <thead><tr><th class="name-col">${t('workerCol')}</th>${headCells.join('')}<th class="total-col">${t('totalCol')}</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <p class="muted" style="margin:10px 4px 0">${editable
-        ? "Katakni bosib kun tafsilotini ko'ring yoki vaqtni tahrirlang."
-        : "Soatlar S:DD formatida. To'q sariq — hozir ishda."}</p>
-      ` : `<div class="card"><p class="muted">Ishchilar yo'q</p></div>`}
+      <p class="muted" style="margin:10px 4px 0">${editable ? t('tableHint') : t('boardMonthHint')}</p>
+      ` : `<div class="card"><p class="muted">${t('noWorkers')}</p></div>`}
     `;
   }
 
@@ -638,18 +745,19 @@
     hideNav();
     $app.className = 'no-nav';
     $app.innerHTML = `
-      <div class="topbar">${brandHtml('Admin')}</div>
+      <div class="topbar">${brandHtml('Admin')}${langSelHtml()}</div>
       <div class="card">
-        <h2>Admin panel</h2>
+        <h2>${t('adminTitle')}</h2>
         <form id="admin-form">
-          <label>Admin parol</label>
+          <label>${t('adminPassword')}</label>
           <input type="password" id="admin-pw" autocomplete="current-password">
           <div class="error-text" id="admin-error"></div>
-          <button class="btn" type="submit" style="margin-top:4px">Kirish</button>
+          <button class="btn" type="submit" style="margin-top:4px">${t('signIn')}</button>
         </form>
       </div>
-      <button class="btn ghost" id="back-btn">← Ishchi sifatida kirish</button>
+      <button class="btn ghost" id="back-btn">${t('workerLogin')}</button>
     `;
+    bindLangSel();
     document.getElementById('back-btn').addEventListener('click', renderWorkerLogin);
     document.getElementById('admin-pw').focus();
     document.getElementById('admin-form').addEventListener('submit', async (e) => {
@@ -660,10 +768,10 @@
         const r = await api('/api/admin/login', { method: 'POST', body: { password: document.getElementById('admin-pw').value } });
         state.me = { role: 'admin' };
         state.month = null;
-        if (r.defaultPassword) toast("⚠️ Standart parol ishlatilmoqda. Railway'da ADMIN_PASSWORD env o'rnating!", 'error', 6000);
+        if (r.defaultPassword) toast(t('defaultPwWarn'), 'error', 6000);
         renderAdmin();
       } catch (ex) {
-        err.textContent = ex.message;
+        err.textContent = terr(ex);
       }
     });
   }
@@ -674,33 +782,39 @@
     $app.className = 'wide';
     $app.innerHTML = `
       <div class="topbar">
-        ${brandHtml('Admin panel')}
-        <button class="chip gray" id="logout-btn">Chiqish</button>
+        ${brandHtml('Admin')}
+        <div style="display:flex;gap:8px;align-items:center">
+          ${langSelHtml()}
+          <button class="chip gray" id="logout-btn">${t('logout')}</button>
+        </div>
       </div>
       <div class="tabs">
-        <button class="tab ${state.adminTab === 'calendar' ? 'active' : ''}" data-tab="calendar">📅 Kalendar</button>
-        <button class="tab ${state.adminTab === 'workers' ? 'active' : ''}" data-tab="workers">👥 Ishchilar</button>
-        <button class="tab ${state.adminTab === 'branches' ? 'active' : ''}" data-tab="branches">🏢 Filiallar va QR</button>
+        <button class="tab ${state.adminTab === 'calendar' ? 'active' : ''}" data-tab="calendar">${t('tabCalendar')}</button>
+        <button class="tab ${state.adminTab === 'workers' ? 'active' : ''}" data-tab="workers">${t('tabWorkers')}</button>
+        <button class="tab ${state.adminTab === 'branches' ? 'active' : ''}" data-tab="branches">${t('tabBranches')}</button>
+        <button class="tab ${state.adminTab === 'settings' ? 'active' : ''}" data-tab="settings">${t('tabSettings')}</button>
       </div>
       <div id="tab-content"><div class="loading-screen" style="padding-top:80px"><div class="spinner"></div></div></div>
     `;
+    bindLangSel();
     document.getElementById('logout-btn').addEventListener('click', async () => {
       await api('/api/logout', { method: 'POST' });
       state.me = null;
       renderWorkerLogin();
     });
-    document.querySelectorAll('.tab').forEach((t) =>
-      t.addEventListener('click', () => { state.adminTab = t.dataset.tab; renderAdmin(); })
+    document.querySelectorAll('.tab').forEach((tab) =>
+      tab.addEventListener('click', () => { state.adminTab = tab.dataset.tab; renderAdmin(); })
     );
 
     const box = document.getElementById('tab-content');
     try {
       if (state.adminTab === 'calendar') await adminCalendarTab(box);
       else if (state.adminTab === 'workers') await adminWorkersTab(box);
-      else await adminBranchesTab(box);
+      else if (state.adminTab === 'branches') await adminBranchesTab(box);
+      else await adminSettingsTab(box);
     } catch (ex) {
-      if (/kiring/i.test(ex.message)) return renderAdminLogin();
-      box.innerHTML = `<div class="card"><p class="error-text">${esc(ex.message)}</p></div>`;
+      if (ex.code === 'AUTH_ADMIN') return renderAdminLogin();
+      box.innerHTML = `<div class="card"><p class="error-text">${esc(terr(ex))}</p></div>`;
     }
   }
 
@@ -717,31 +831,30 @@
     const [y, m] = date.split('-').map(Number);
     const data = await api(`/api/admin/worker/${workerId}/summary?year=${y}&month=${m}`);
     const dd = data.days[date] || { sessions: [], minutes: 0, open: false };
-    const [, , d] = date.split('-');
 
     const modal = openModal(`
       <div class="modal-head">
-        <h2 style="margin:0">${esc(name)} — ${+d}-${MONTHS[m - 1].toLowerCase()}</h2>
+        <h2 style="margin:0">${esc(name)} — ${dayTitle(date)}</h2>
         <button class="modal-close" id="m-close">✕</button>
       </div>
-      <p class="muted">Jami: <b style="color:var(--green)">${fmtH(dd.minutes)}</b> soat${dd.open ? ' <span style="color:var(--amber)">(hozir ishda)</span>' : ''}</p>
+      <p class="muted">${t('dayTotal')}: <b style="color:var(--green)">${fmtH(dd.minutes)}</b> ${t('hUnit')}${dd.open ? ` <span style="color:var(--amber)">(${t('nowWorking')})</span>` : ''}</p>
       <div id="m-sessions">
         ${dd.sessions.map((s) => `
           <div class="entry-edit-row" data-entry="${s.id}">
             <input type="time" class="e-in" value="${s.in}">
             <span>→</span>
             <input type="time" class="e-out" value="${s.out || ''}">
-            <button class="chip e-save" title="Saqlash">💾</button>
-            <button class="chip red e-del" title="O'chirish">🗑</button>
-          </div>`).join('') || `<p class="muted" style="padding:8px 0">Bu kunda yozuvlar yo'q</p>`}
+            <button class="chip e-save" title="${t('save')}">💾</button>
+            <button class="chip red e-del" title="🗑">🗑</button>
+          </div>`).join('') || `<p class="muted" style="padding:8px 0">${t('noRecords')}</p>`}
       </div>
       <div style="border-top:1.5px solid var(--line);margin-top:16px;padding-top:14px">
-        <b style="font-size:14px">Qo'lda yozuv qo'shish</b>
+        <b style="font-size:14px">${t('manualAdd')}</b>
         <div class="entry-edit-row">
           <input type="time" id="new-in">
           <span>→</span>
           <input type="time" id="new-out">
-          <button class="chip" id="new-add">＋ Qo'shish</button>
+          <button class="chip" id="new-add">${t('add')}</button>
         </div>
       </div>
       <div class="error-text" id="m-error"></div>
@@ -757,17 +870,17 @@
         err.textContent = '';
         try {
           await api(`/api/admin/entries/${id}`, { method: 'PUT', body: { in: row.querySelector('.e-in').value, out: row.querySelector('.e-out').value || null } });
-          toast('Saqlandi', 'success');
+          toast(t('saved'), 'success');
           refresh();
-        } catch (ex) { err.textContent = ex.message; }
+        } catch (ex) { err.textContent = terr(ex); }
       });
       row.querySelector('.e-del').addEventListener('click', async () => {
-        if (!confirm("Yozuv o'chirilsinmi?")) return;
+        if (!confirm(t('delEntryConfirm'))) return;
         try {
           await api(`/api/admin/entries/${id}`, { method: 'DELETE' });
-          toast("O'chirildi", 'success');
+          toast(t('deleted'), 'success');
           refresh();
-        } catch (ex) { err.textContent = ex.message; }
+        } catch (ex) { err.textContent = terr(ex); }
       });
     });
 
@@ -778,9 +891,9 @@
           method: 'POST',
           body: { workerId, date, in: modal.querySelector('#new-in').value, out: modal.querySelector('#new-out').value || null },
         });
-        toast("Qo'shildi", 'success');
+        toast(t('added'), 'success');
         refresh();
-      } catch (ex) { err.textContent = ex.message; }
+      } catch (ex) { err.textContent = terr(ex); }
     });
   }
 
@@ -795,33 +908,33 @@
 
     box.innerHTML = `
       <div class="card" style="max-width:600px">
-        <h2>Yangi ishchi qo'shish</h2>
+        <h2>${t('addWorker')}</h2>
         <form id="add-form">
           <div class="form-row">
-            <div><label>Ism familiya</label><input id="add-name" placeholder="Masalan: Aziz Karimov"></div>
-            <div><label>Parol</label><input id="add-pw" placeholder="Kamida 4 belgi"></div>
+            <div><label>${t('fullName')}</label><input id="add-name" placeholder="${t('namePh')}"></div>
+            <div><label>${t('password')}</label><input id="add-pw" placeholder="${t('pwPh')}"></div>
           </div>
-          ${branches.length > 1 ? `<label>Filial</label><select id="add-branch">${branchOptions(branches[0].id)}</select>` : ''}
+          ${branches.length > 1 ? `<label>${t('branch')}</label><select id="add-branch">${branchOptions(branches[0].id)}</select>` : ''}
           <div class="error-text" id="add-error"></div>
-          <button class="btn" type="submit">＋ Qo'shish</button>
+          <button class="btn" type="submit">${t('add')}</button>
         </form>
       </div>
       <div class="card" style="max-width:600px">
-        <h2>Ishchilar (${workers.length})</h2>
+        <h2>${t('workersList', workers.length)}</h2>
         ${workers.map((w) => `
           <div class="worker-admin-row" data-id="${w.id}">
             <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
             <div class="info">
-              <div class="name">${esc(w.name)}${w.active ? '' : '<span class="badge-inactive">nofaol</span>'}</div>
+              <div class="name">${esc(w.name)}${w.active ? '' : `<span class="badge-inactive">${t('inactive')}</span>`}</div>
               <div class="sub">${esc(branchName(w.branchId))}</div>
             </div>
             <div class="actions">
-              <button class="chip w-pw" title="Parolni almashtirish">🔑 Parol</button>
-              ${branches.length > 1 ? `<button class="chip w-branch" title="Filialni o'zgartirish">🏢</button>` : ''}
+              <button class="chip w-pw">${t('changePw')}</button>
+              ${branches.length > 1 ? `<button class="chip w-branch">🏢</button>` : ''}
               <button class="chip gray w-toggle">${w.active ? '⏸' : '▶'}</button>
               <button class="chip red w-del">🗑</button>
             </div>
-          </div>`).join('') || `<p class="muted">Hozircha ishchilar yo'q</p>`}
+          </div>`).join('') || `<p class="muted">${t('noWorkers')}</p>`}
       </div>
     `;
 
@@ -838,51 +951,51 @@
             branchId: document.getElementById('add-branch')?.value,
           },
         });
-        toast("Ishchi qo'shildi", 'success');
+        toast(t('workerAdded'), 'success');
         renderAdmin();
-      } catch (ex) { err.textContent = ex.message; }
+      } catch (ex) { err.textContent = terr(ex); }
     });
 
     box.querySelectorAll('.worker-admin-row').forEach((row) => {
       const id = row.dataset.id;
       const w = workers.find((x) => String(x.id) === id);
       row.querySelector('.w-pw').addEventListener('click', () => {
-        const pw = prompt(`${w.name} uchun yangi parol (kamida 4 belgi):`);
+        const pw = prompt(t('pwPrompt', w.name));
         if (pw === null) return;
         api(`/api/admin/workers/${id}`, { method: 'PUT', body: { password: pw } })
-          .then(() => toast("Parol o'zgartirildi", 'success'))
-          .catch((ex) => toast(ex.message, 'error'));
+          .then(() => toast(t('pwChanged'), 'success'))
+          .catch((ex) => toast(terr(ex), 'error'));
       });
       row.querySelector('.w-branch')?.addEventListener('click', () => {
         const modal = openModal(`
-          <div class="modal-head"><h2 style="margin:0">${esc(w.name)} — filial</h2><button class="modal-close" id="m-close">✕</button></div>
-          <label>Filialni tanlang</label>
+          <div class="modal-head"><h2 style="margin:0">${esc(w.name)}</h2><button class="modal-close" id="m-close">✕</button></div>
+          <label>${t('chooseBranch')}</label>
           <select id="b-select">${branchOptions(w.branchId)}</select>
-          <button class="btn" id="b-save" style="margin-top:16px">Saqlash</button>
+          <button class="btn" id="b-save" style="margin-top:16px">${t('save')}</button>
         `);
         modal.querySelector('#m-close').addEventListener('click', closeModal);
         modal.querySelector('#b-save').addEventListener('click', async () => {
           try {
             await api(`/api/admin/workers/${id}`, { method: 'PUT', body: { branchId: modal.querySelector('#b-select').value } });
-            toast("Filial o'zgartirildi", 'success');
+            toast(t('branchChanged'), 'success');
             closeModal();
             renderAdmin();
-          } catch (ex) { toast(ex.message, 'error'); }
+          } catch (ex) { toast(terr(ex), 'error'); }
         });
       });
       row.querySelector('.w-toggle').addEventListener('click', async () => {
         try {
           await api(`/api/admin/workers/${id}`, { method: 'PUT', body: { active: !w.active } });
           renderAdmin();
-        } catch (ex) { toast(ex.message, 'error'); }
+        } catch (ex) { toast(terr(ex), 'error'); }
       });
       row.querySelector('.w-del').addEventListener('click', async () => {
-        if (!confirm(`${w.name} o'chirilsinmi? Barcha vaqt yozuvlari ham o'chadi! (Vaqtincha yashirish uchun ⏸ tugmasini ishlating.)`)) return;
+        if (!confirm(t('delWorkerConfirm', w.name))) return;
         try {
           await api(`/api/admin/workers/${id}`, { method: 'DELETE' });
-          toast("O'chirildi", 'success');
+          toast(t('deleted'), 'success');
           renderAdmin();
-        } catch (ex) { toast(ex.message, 'error'); }
+        } catch (ex) { toast(terr(ex), 'error'); }
       });
     });
   }
@@ -892,12 +1005,12 @@
     const branches = await api('/api/admin/branches');
     box.innerHTML = `
       <div class="card" style="max-width:600px">
-        <h2>Yangi filial (ish joyi) qo'shish</h2>
-        <p class="muted" style="margin-bottom:10px">Har bir ish joyining o'z QR kodi bo'ladi. Ishchi qaysi joyda skanerlashi farqsiz — vaqt hisoblanadi.</p>
+        <h2>${t('addBranch')}</h2>
+        <p class="muted" style="margin-bottom:10px">${t('branchNote')}</p>
         <form id="add-branch-form">
           <div class="form-row">
-            <input id="branch-name" placeholder="Masalan: Chilonzor filiali">
-            <button class="btn" type="submit" style="flex:0 0 auto;width:auto;padding:14px 22px">＋ Qo'shish</button>
+            <input id="branch-name" placeholder="${t('branchPh')}">
+            <button class="btn" type="submit" style="flex:0 0 auto;width:auto;padding:14px 22px">${t('add')}</button>
           </div>
           <div class="error-text" id="branch-error"></div>
         </form>
@@ -906,20 +1019,20 @@
         <div class="card qr-card" style="max-width:600px" data-id="${b.id}">
           <div class="modal-head" style="margin-bottom:4px">
             <h2 style="margin:0">🏢 ${esc(b.name)}</h2>
-            <span class="muted">${b.workers} ishchi</span>
+            <span class="muted">${t('workersUnit', b.workers)}</span>
           </div>
           <div class="print-area" data-branch="${b.id}">
-            <img src="${b.dataUrl}" alt="QR kod">
-            <div class="pt">${esc(b.name)} — davomat QR kodi</div>
+            <img src="${b.dataUrl}" alt="QR">
+            <div class="pt">${esc(b.name)} — ${t('qrCaption')}</div>
           </div>
           <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;justify-content:center">
-            <button class="chip b-print">🖨 Chop etish</button>
-            <button class="chip gray b-rename">✏️ Nomi</button>
-            <button class="chip red b-rotate">♻️ Yangi QR</button>
+            <button class="chip b-print">${t('printQr')}</button>
+            <button class="chip gray b-rename">${t('renameBranch')}</button>
+            <button class="chip red b-rotate">${t('newQr')}</button>
             <button class="chip red b-del">🗑</button>
           </div>
         </div>`).join('')}
-      <p class="muted" style="max-width:600px">«Yangi QR» bosilsa shu filialning eski chop etilgan kodi ishlamay qoladi — yangisini chop eting.</p>
+      <p class="muted" style="max-width:600px">${t('qrRotateNote')}</p>
     `;
 
     document.getElementById('add-branch-form').addEventListener('submit', async (e) => {
@@ -928,9 +1041,9 @@
       err.textContent = '';
       try {
         await api('/api/admin/branches', { method: 'POST', body: { name: document.getElementById('branch-name').value } });
-        toast("Filial qo'shildi", 'success');
+        toast(t('branchAdded'), 'success');
         renderAdmin();
-      } catch (ex) { err.textContent = ex.message; }
+      } catch (ex) { err.textContent = terr(ex); }
     });
 
     box.querySelectorAll('.card[data-id]').forEach((card) => {
@@ -943,29 +1056,56 @@
         document.querySelectorAll('.print-area').forEach((p) => p.classList.remove('hidden'));
       });
       card.querySelector('.b-rename').addEventListener('click', async () => {
-        const name = prompt('Filialning yangi nomi:', b.name);
+        const name = prompt(t('branchNewName'), b.name);
         if (!name) return;
         try {
           await api(`/api/admin/branches/${id}`, { method: 'PUT', body: { name } });
           renderAdmin();
-        } catch (ex) { toast(ex.message, 'error'); }
+        } catch (ex) { toast(terr(ex), 'error'); }
       });
       card.querySelector('.b-rotate').addEventListener('click', async () => {
-        if (!confirm(`${b.name} uchun yangi QR kod yaratilsinmi? Eski kod ishlamay qoladi.`)) return;
+        if (!confirm(t('newQrConfirm', b.name))) return;
         try {
           await api(`/api/admin/branches/${id}/qr/rotate`, { method: 'POST' });
-          toast('Yangi QR kod yaratildi', 'success');
+          toast(t('qrRotated'), 'success');
           renderAdmin();
-        } catch (ex) { toast(ex.message, 'error'); }
+        } catch (ex) { toast(terr(ex), 'error'); }
       });
       card.querySelector('.b-del').addEventListener('click', async () => {
-        if (!confirm(`${b.name} o'chirilsinmi?`)) return;
+        if (!confirm(t('delBranchConfirm', b.name))) return;
         try {
           await api(`/api/admin/branches/${id}`, { method: 'DELETE' });
-          toast("O'chirildi", 'success');
+          toast(t('deleted'), 'success');
           renderAdmin();
-        } catch (ex) { toast(ex.message, 'error'); }
+        } catch (ex) { toast(terr(ex), 'error'); }
       });
+    });
+  }
+
+  // ---------- Admin: Sozlamalar ----------
+  async function adminSettingsTab(box) {
+    const s = await api('/api/admin/settings');
+    const opts = TIMEZONES.map(([tz, label]) =>
+      `<option value="${tz}" ${tz === s.timezone ? 'selected' : ''}>${label} — ${tz}</option>`).join('');
+    const custom = TIMEZONES.some(([tz]) => tz === s.timezone) ? '' :
+      `<option value="${esc(s.timezone)}" selected>${esc(s.timezone)}</option>`;
+    box.innerHTML = `
+      <div class="card" style="max-width:600px">
+        <h2>${t('settingsTitle')}</h2>
+        <label>${t('timezone')}</label>
+        <select id="tz-select">${custom}${opts}</select>
+        <p class="muted" style="margin-top:10px">${t('tzNote')}</p>
+        <div class="error-text" id="tz-error"></div>
+        <button class="btn" id="tz-save">${t('save')}</button>
+      </div>
+    `;
+    document.getElementById('tz-save').addEventListener('click', async () => {
+      const err = document.getElementById('tz-error');
+      err.textContent = '';
+      try {
+        await api('/api/admin/settings', { method: 'PUT', body: { timezone: document.getElementById('tz-select').value } });
+        toast(t('saved'), 'success');
+      } catch (ex) { err.textContent = terr(ex); }
     });
   }
 

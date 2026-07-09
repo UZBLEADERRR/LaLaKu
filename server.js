@@ -58,7 +58,15 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_entries_worker_date ON entries(worker_id, work_date);
     ALTER TABLE workers ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);
     ALTER TABLE entries ADD COLUMN IF NOT EXISTS branch_id INTEGER;
+    ALTER TABLE workers ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE workers ADD COLUMN IF NOT EXISTS tax_percent NUMERIC NOT NULL DEFAULT 0;
   `);
+
+  // Vaqt zonasi sozlamasi (standart — env, keyin admin panelda o'zgartiriladi)
+  await pool.query(
+    `INSERT INTO settings (key, value) VALUES ('timezone', $1) ON CONFLICT (key) DO NOTHING`,
+    [TIMEZONE]
+  );
 
   // Sessiya kaliti — bir marta yaratiladi va bazada saqlanadi,
   // shunda server qayta ishga tushganda sessiyalar bekor bo'lmaydi.
@@ -116,16 +124,25 @@ function setSessionCookie(res, payload, days) {
 }
 
 // ---------- Vaqt zonasi yordamchilari ----------
-// Sanalar UTC'da saqlanadi, ko'rsatish va "ish kuni" TIMEZONE bo'yicha aniqlanadi.
-const dateFmt = new Intl.DateTimeFormat('en-CA', {
-  timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
-});
-const timeFmt = new Intl.DateTimeFormat('en-GB', {
-  timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false,
-});
+// Sanalar UTC'da saqlanadi, ko'rsatish va "ish kuni" tanlangan zona bo'yicha.
+// Zona admin panelda o'zgartiriladi va bazada saqlanadi.
+let TZ = TIMEZONE;
+const fmtCache = new Map();
+function tzFmts(tz) {
+  if (!fmtCache.has(tz)) {
+    fmtCache.set(tz, {
+      date: new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }),
+      time: new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }),
+    });
+  }
+  return fmtCache.get(tz);
+}
+function validTz(tz) {
+  try { tzFmts(tz); return true; } catch { fmtCache.delete(tz); return false; }
+}
 
-const localDate = (d = new Date()) => dateFmt.format(d); // YYYY-MM-DD
-const localTime = (d = new Date()) => timeFmt.format(d); // HH:MM
+const localDate = (d = new Date()) => tzFmts(TZ).date.format(d); // YYYY-MM-DD
+const localTime = (d = new Date()) => tzFmts(TZ).time.format(d); // HH:MM
 
 // ---------- Login urinishlarini cheklash ----------
 const loginAttempts = new Map(); // ip -> {count, resetAt}
@@ -149,16 +166,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+// error kodlari mijoz tomonda tarjima qilinadi (uz/en/ko)
 function requireWorker(req, res, next) {
   const s = verifyToken(req.cookies.sid);
-  if (!s || s.t !== 'worker') return res.status(401).json({ error: 'Tizimga kiring' });
+  if (!s || s.t !== 'worker') return res.status(401).json({ error: 'Tizimga kiring', code: 'AUTH' });
   req.workerId = s.id;
   next();
 }
 
 function requireAdmin(req, res, next) {
   const s = verifyToken(req.cookies.sid);
-  if (!s || s.t !== 'admin') return res.status(401).json({ error: 'Admin sifatida kiring' });
+  if (!s || s.t !== 'admin') return res.status(401).json({ error: 'Admin sifatida kiring', code: 'AUTH_ADMIN' });
   next();
 }
 
@@ -179,22 +197,22 @@ app.get('/api/workers', wrap(async (req, res) => {
 }));
 
 app.post('/api/login', wrap(async (req, res) => {
-  if (rateLimited(req.ip)) return res.status(429).json({ error: "Urinishlar ko'p. 10 daqiqadan so'ng qayta urinib ko'ring." });
+  if (rateLimited(req.ip)) return res.status(429).json({ error: "Urinishlar ko'p. 10 daqiqadan so'ng qayta urinib ko'ring.", code: 'RATE_LIMIT' });
   const { workerId, password } = req.body || {};
   const r = await pool.query(`SELECT * FROM workers WHERE id = $1 AND active`, [workerId]);
   const w = r.rows[0];
   if (!w || !(await bcrypt.compare(String(password || ''), w.password_hash))) {
-    return res.status(401).json({ error: "Parol noto'g'ri" });
+    return res.status(401).json({ error: "Parol noto'g'ri", code: 'BAD_PASSWORD' });
   }
   setSessionCookie(res, { t: 'worker', id: w.id }, 60);
-  res.json({ id: w.id, name: w.name });
+  res.json({ id: w.id, name: w.name, hourlyRate: +w.hourly_rate, taxPercent: +w.tax_percent });
 }));
 
 app.post('/api/admin/login', wrap(async (req, res) => {
-  if (rateLimited(req.ip)) return res.status(429).json({ error: "Urinishlar ko'p. 10 daqiqadan so'ng qayta urinib ko'ring." });
+  if (rateLimited(req.ip)) return res.status(429).json({ error: "Urinishlar ko'p. 10 daqiqadan so'ng qayta urinib ko'ring.", code: 'RATE_LIMIT' });
   const { password } = req.body || {};
   if (String(password || '') !== ADMIN_PASSWORD) {
-    return res.status(401).json({ error: "Parol noto'g'ri" });
+    return res.status(401).json({ error: "Parol noto'g'ri", code: 'BAD_PASSWORD' });
   }
   setSessionCookie(res, { t: 'admin' }, 7);
   res.json({ ok: true, defaultPassword: ADMIN_PASSWORD === 'admin123' });
@@ -209,9 +227,21 @@ app.get('/api/me', wrap(async (req, res) => {
   const s = verifyToken(req.cookies.sid);
   if (!s) return res.json({ role: null });
   if (s.t === 'admin') return res.json({ role: 'admin' });
-  const r = await pool.query(`SELECT id, name FROM workers WHERE id = $1 AND active`, [s.id]);
+  const r = await pool.query(
+    `SELECT id, name, hourly_rate::float AS "hourlyRate", tax_percent::float AS "taxPercent"
+     FROM workers WHERE id = $1 AND active`, [s.id]);
   if (!r.rows[0]) return res.json({ role: null });
   res.json({ role: 'worker', ...r.rows[0] });
+}));
+
+// Ishchining shaxsiy maosh sozlamalari
+app.put('/api/my/settings', requireWorker, wrap(async (req, res) => {
+  const rate = Number((req.body || {}).hourlyRate);
+  const tax = Number((req.body || {}).taxPercent);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1e9) return res.status(400).json({ error: "Soatlik maosh noto'g'ri", code: 'BAD_RATE' });
+  if (!Number.isFinite(tax) || tax < 0 || tax > 100) return res.status(400).json({ error: "Soliq foizi 0-100 orasida bo'lsin", code: 'BAD_TAX' });
+  await pool.query(`UPDATE workers SET hourly_rate = $1, tax_percent = $2 WHERE id = $3`, [rate, tax, req.workerId]);
+  res.json({ ok: true });
 }));
 
 // ---------- Ochiq davomat taxtasi (loginsiz) ----------
@@ -279,7 +309,7 @@ app.post('/api/scan', requireWorker, wrap(async (req, res) => {
     `SELECT id, name FROM branches WHERE qr_token = $1`, [String(code || '').trim()]
   )).rows[0];
   if (!branch) {
-    return res.status(400).json({ error: "QR kod noto'g'ri. Ish joyidagi QR kodni skanerlang." });
+    return res.status(400).json({ error: "QR kod noto'g'ri. Ish joyidagi QR kodni skanerlang.", code: 'BAD_QR' });
   }
 
   const now = new Date();
@@ -293,7 +323,7 @@ app.post('/api/scan', requireWorker, wrap(async (req, res) => {
   if (open) {
     // Tasodifiy ikki marta skanerlashdan himoya
     if (now - new Date(open.check_in) < 60_000) {
-      return res.status(400).json({ error: "Siz hozirgina kelganingizni belgiladingiz. Ketishda qayta skanerlang." });
+      return res.status(400).json({ error: "Siz hozirgina kelganingizni belgiladingiz. Ketishda qayta skanerlang.", code: 'DUP_SCAN' });
     }
     await pool.query(`UPDATE entries SET check_out = $1 WHERE id = $2`, [now, open.id]);
     return res.json({ action: 'out', time: localTime(now), date: localDate(now), branch: branch.name });
@@ -317,7 +347,7 @@ function parseYearMonth(req, res) {
   const year = parseInt(req.query.year, 10);
   const month = parseInt(req.query.month, 10);
   if (!year || !month || month < 1 || month > 12 || year < 2000 || year > 2100) {
-    res.status(400).json({ error: "Yil/oy noto'g'ri" });
+    res.status(400).json({ error: "Yil/oy noto'g'ri", code: 'BAD_MONTH' });
     return {};
   }
   return { year, month };
@@ -396,12 +426,12 @@ app.post('/api/admin/workers', requireAdmin, wrap(async (req, res) => {
   const name = String((req.body || {}).name || '').trim();
   const password = String((req.body || {}).password || '');
   let branchId = parseInt((req.body || {}).branchId, 10);
-  if (!name) return res.status(400).json({ error: 'Ism kiriting' });
-  if (password.length < 4) return res.status(400).json({ error: "Parol kamida 4 belgidan iborat bo'lsin" });
+  if (!name) return res.status(400).json({ error: 'Ism kiriting', code: 'NAME_REQUIRED' });
+  if (password.length < 4) return res.status(400).json({ error: "Parol kamida 4 belgidan iborat bo'lsin", code: 'PW_SHORT' });
   if (!branchId) {
     branchId = (await pool.query(`SELECT min(id) AS id FROM branches`)).rows[0].id;
   } else if (!(await pool.query(`SELECT id FROM branches WHERE id = $1`, [branchId])).rows[0]) {
-    return res.status(400).json({ error: 'Filial topilmadi' });
+    return res.status(400).json({ error: 'Filial topilmadi', code: 'NOT_FOUND' });
   }
   const hash = await bcrypt.hash(password, 10);
   const r = await pool.query(
@@ -416,14 +446,14 @@ app.put('/api/admin/workers/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const { name, password, active, branchId } = req.body || {};
   const w = (await pool.query(`SELECT id FROM workers WHERE id = $1`, [id])).rows[0];
-  if (!w) return res.status(404).json({ error: 'Ishchi topilmadi' });
+  if (!w) return res.status(404).json({ error: 'Ishchi topilmadi', code: 'NOT_FOUND' });
   if (name !== undefined) {
     const n = String(name).trim();
-    if (!n) return res.status(400).json({ error: 'Ism kiriting' });
+    if (!n) return res.status(400).json({ error: 'Ism kiriting', code: 'NAME_REQUIRED' });
     await pool.query(`UPDATE workers SET name = $1 WHERE id = $2`, [n, id]);
   }
   if (password !== undefined && password !== '') {
-    if (String(password).length < 4) return res.status(400).json({ error: "Parol kamida 4 belgidan iborat bo'lsin" });
+    if (String(password).length < 4) return res.status(400).json({ error: "Parol kamida 4 belgidan iborat bo'lsin", code: 'PW_SHORT' });
     await pool.query(`UPDATE workers SET password_hash = $1 WHERE id = $2`, [await bcrypt.hash(String(password), 10), id]);
   }
   if (active !== undefined) {
@@ -431,7 +461,7 @@ app.put('/api/admin/workers/:id', requireAdmin, wrap(async (req, res) => {
   }
   if (branchId !== undefined) {
     const b = (await pool.query(`SELECT id FROM branches WHERE id = $1`, [parseInt(branchId, 10)])).rows[0];
-    if (!b) return res.status(400).json({ error: 'Filial topilmadi' });
+    if (!b) return res.status(400).json({ error: 'Filial topilmadi', code: 'NOT_FOUND' });
     await pool.query(`UPDATE workers SET branch_id = $1 WHERE id = $2`, [b.id, id]);
   }
   res.json({ ok: true });
@@ -459,27 +489,35 @@ app.get('/api/admin/worker/:id/summary', requireAdmin, wrap(async (req, res) => 
   res.json({ worker: w, ...(await workerMonth(id, year, month)) });
 }));
 
+// Ketish vaqti kelishdan kichik bo'lsa — tungi smena: ketish keyingi kunga o'tadi
+function outDateFor(date, inTime, outTime) {
+  if (!outTime || outTime > inTime) return date;
+  const d = new Date(date + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 // Qo'lda yozuv qo'shish (skaner unutilgan kunlar uchun)
 app.post('/api/admin/entries', requireAdmin, wrap(async (req, res) => {
   const { workerId, date, in: inTime, out: outTime } = req.body || {};
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error: "Sana noto'g'ri" });
-  if (!/^\d{2}:\d{2}$/.test(String(inTime || ''))) return res.status(400).json({ error: "Kelish vaqti noto'g'ri (SS:DD)" });
-  if (outTime && !/^\d{2}:\d{2}$/.test(String(outTime))) return res.status(400).json({ error: "Ketish vaqti noto'g'ri (SS:DD)" });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error: "Sana noto'g'ri", code: 'BAD_DATE' });
+  if (!/^\d{2}:\d{2}$/.test(String(inTime || ''))) return res.status(400).json({ error: "Kelish vaqti noto'g'ri (SS:DD)", code: 'BAD_TIME' });
+  if (outTime && !/^\d{2}:\d{2}$/.test(String(outTime))) return res.status(400).json({ error: "Ketish vaqti noto'g'ri (SS:DD)", code: 'BAD_TIME' });
   const w = (await pool.query(`SELECT id, branch_id FROM workers WHERE id = $1`, [parseInt(workerId, 10)])).rows[0];
-  if (!w) return res.status(404).json({ error: 'Ishchi topilmadi' });
+  if (!w) return res.status(404).json({ error: 'Ishchi topilmadi', code: 'NOT_FOUND' });
   try {
     await pool.query(
       `INSERT INTO entries (worker_id, work_date, check_in, check_out, branch_id)
        VALUES ($1, $2::date,
                ($2 || ' ' || $3)::timestamp AT TIME ZONE $5,
                CASE WHEN $4::text IS NULL THEN NULL
-                    ELSE ($2 || ' ' || $4)::timestamp AT TIME ZONE $5 END,
-               $6)`,
-      [w.id, date, inTime, outTime || null, TIMEZONE, w.branch_id]
+                    ELSE ($6 || ' ' || $4)::timestamp AT TIME ZONE $5 END,
+               $7)`,
+      [w.id, date, inTime, outTime || null, TZ, outDateFor(date, inTime, outTime), w.branch_id]
     );
   } catch (e) {
     if (e.constraint === 'out_after_in') {
-      return res.status(400).json({ error: "Ketish vaqti kelish vaqtidan keyin bo'lishi kerak" });
+      return res.status(400).json({ error: "Ketish vaqti kelish vaqtidan keyin bo'lishi kerak", code: 'OUT_BEFORE_IN' });
     }
     throw e;
   }
@@ -490,26 +528,41 @@ app.post('/api/admin/entries', requireAdmin, wrap(async (req, res) => {
 app.put('/api/admin/entries/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const e = (await pool.query(`SELECT id, work_date::text AS date FROM entries WHERE id = $1`, [id])).rows[0];
-  if (!e) return res.status(404).json({ error: 'Yozuv topilmadi' });
+  if (!e) return res.status(404).json({ error: 'Yozuv topilmadi', code: 'NOT_FOUND' });
   const { in: inTime, out: outTime } = req.body || {};
-  if (!/^\d{2}:\d{2}$/.test(String(inTime || ''))) return res.status(400).json({ error: "Kelish vaqti noto'g'ri (SS:DD)" });
-  if (outTime && !/^\d{2}:\d{2}$/.test(String(outTime))) return res.status(400).json({ error: "Ketish vaqti noto'g'ri (SS:DD)" });
+  if (!/^\d{2}:\d{2}$/.test(String(inTime || ''))) return res.status(400).json({ error: "Kelish vaqti noto'g'ri (SS:DD)", code: 'BAD_TIME' });
+  if (outTime && !/^\d{2}:\d{2}$/.test(String(outTime))) return res.status(400).json({ error: "Ketish vaqti noto'g'ri (SS:DD)", code: 'BAD_TIME' });
   try {
     await pool.query(
       `UPDATE entries SET
          check_in = ($2 || ' ' || $3)::timestamp AT TIME ZONE $5,
          check_out = CASE WHEN $4::text IS NULL THEN NULL
-                          ELSE ($2 || ' ' || $4)::timestamp AT TIME ZONE $5 END
+                          ELSE ($6 || ' ' || $4)::timestamp AT TIME ZONE $5 END
        WHERE id = $1`,
-      [id, e.date, inTime, outTime || null, TIMEZONE]
+      [id, e.date, inTime, outTime || null, TZ, outDateFor(e.date, inTime, outTime)]
     );
   } catch (err) {
     if (err.constraint === 'out_after_in') {
-      return res.status(400).json({ error: "Ketish vaqti kelish vaqtidan keyin bo'lishi kerak" });
+      return res.status(400).json({ error: "Ketish vaqti kelish vaqtidan keyin bo'lishi kerak", code: 'OUT_BEFORE_IN' });
     }
     throw err;
   }
   res.json({ ok: true });
+}));
+
+// ---------- Sozlamalar (admin) ----------
+app.get('/api/admin/settings', requireAdmin, wrap(async (req, res) => {
+  res.json({ timezone: TZ });
+}));
+
+app.put('/api/admin/settings', requireAdmin, wrap(async (req, res) => {
+  const tz = String((req.body || {}).timezone || '').trim();
+  if (!tz || !validTz(tz)) return res.status(400).json({ error: "Vaqt zonasi noto'g'ri", code: 'BAD_TZ' });
+  await pool.query(
+    `INSERT INTO settings (key, value) VALUES ('timezone', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [tz]);
+  TZ = tz;
+  res.json({ ok: true, timezone: TZ });
 }));
 
 app.delete('/api/admin/entries/:id', requireAdmin, wrap(async (req, res) => {
@@ -533,7 +586,7 @@ app.get('/api/admin/branches', requireAdmin, wrap(async (req, res) => {
 
 app.post('/api/admin/branches', requireAdmin, wrap(async (req, res) => {
   const name = String((req.body || {}).name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Filial nomini kiriting' });
+  if (!name) return res.status(400).json({ error: 'Filial nomini kiriting', code: 'NAME_REQUIRED' });
   const r = await pool.query(
     `INSERT INTO branches (name, qr_token) VALUES ($1, $2) RETURNING id, name`,
     [name, newQrToken()]
@@ -544,18 +597,18 @@ app.post('/api/admin/branches', requireAdmin, wrap(async (req, res) => {
 app.put('/api/admin/branches/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const name = String((req.body || {}).name || '').trim();
-  if (!name) return res.status(400).json({ error: 'Filial nomini kiriting' });
+  if (!name) return res.status(400).json({ error: 'Filial nomini kiriting', code: 'NAME_REQUIRED' });
   const r = await pool.query(`UPDATE branches SET name = $1 WHERE id = $2 RETURNING id`, [name, id]);
-  if (!r.rows[0]) return res.status(404).json({ error: 'Filial topilmadi' });
+  if (!r.rows[0]) return res.status(404).json({ error: 'Filial topilmadi', code: 'NOT_FOUND' });
   res.json({ ok: true });
 }));
 
 app.delete('/api/admin/branches/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const n = (await pool.query(`SELECT count(*)::int AS n FROM branches`)).rows[0].n;
-  if (n <= 1) return res.status(400).json({ error: "Kamida bitta filial qolishi kerak" });
+  if (n <= 1) return res.status(400).json({ error: "Kamida bitta filial qolishi kerak", code: 'LAST_BRANCH' });
   const used = (await pool.query(`SELECT count(*)::int AS n FROM workers WHERE branch_id = $1`, [id])).rows[0].n;
-  if (used > 0) return res.status(400).json({ error: "Avval bu filialdagi ishchilarni boshqa filialga o'tkazing" });
+  if (used > 0) return res.status(400).json({ error: "Avval bu filialdagi ishchilarni boshqa filialga o'tkazing", code: 'BRANCH_HAS_WORKERS' });
   await pool.query(`DELETE FROM branches WHERE id = $1`, [id]);
   res.json({ ok: true });
 }));
@@ -564,7 +617,7 @@ app.delete('/api/admin/branches/:id', requireAdmin, wrap(async (req, res) => {
 app.post('/api/admin/branches/:id/qr/rotate', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const r = await pool.query(`UPDATE branches SET qr_token = $1 WHERE id = $2 RETURNING id`, [newQrToken(), id]);
-  if (!r.rows[0]) return res.status(404).json({ error: 'Filial topilmadi' });
+  if (!r.rows[0]) return res.status(404).json({ error: 'Filial topilmadi', code: 'NOT_FOUND' });
   res.json({ ok: true });
 }));
 
@@ -582,6 +635,8 @@ app.use((err, req, res, next) => {
 initDb()
   .then(async () => {
     SESSION_SECRET = (await pool.query(`SELECT value FROM settings WHERE key = 'session_secret'`)).rows[0].value;
+    const savedTz = (await pool.query(`SELECT value FROM settings WHERE key = 'timezone'`)).rows[0];
+    if (savedTz && validTz(savedTz.value)) TZ = savedTz.value;
     app.listen(PORT, () => console.log(`LaLaKu Vaqt ${PORT}-portda ishlamoqda (${TIMEZONE})`));
   })
   .catch((e) => {
