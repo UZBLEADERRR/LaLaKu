@@ -1,16 +1,29 @@
 /* LaLaKu Vaqt — mijoz ilovasi */
 (() => {
   const $app = document.getElementById('app');
+  const $nav = document.getElementById('bottom-nav');
   const MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
   const DOWS = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya'];
-  const AVATAR_COLORS = ['#4f46e5', '#0d9488', '#b45309', '#be185d', '#7c3aed', '#0369a1', '#059669', '#dc2626'];
+  const AVATAR_COLORS = ['#5b5bd6', '#0d9488', '#c2410c', '#be185d', '#7c3aed', '#0369a1', '#0a9f6d', '#e5484d'];
+
+  const ICONS = {
+    home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>',
+    board: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16.5 15.2c2.2.3 3.6 1.8 4 4.3"/></svg>',
+    calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="3"/><path d="M8 3v4M16 3v4M3.5 10.5h17"/></svg>',
+    scan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></svg>',
+  };
 
   const state = {
     me: null,                    // {role, id, name}
     month: null,                 // {year, month} — ko'rilayotgan oy
     selectedDay: null,
+    view: 'home',                // ishchi: home | board | calendar
+    boardMode: 'today',          // today | month
+    boardBranch: 0,              // 0 = hammasi
     adminTab: 'calendar',
+    adminBranch: 0,
     timerId: null,
+    boardTimer: null,
   };
 
   // ---------- API ----------
@@ -41,7 +54,7 @@
   };
   const initials = (name) => name.trim().split(/\s+/).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
 
-  function toast(msg, type = '', ms = 3200) {
+  function toast(msg, type = '', ms = 3400) {
     const t = document.getElementById('toast');
     t.textContent = msg;
     t.className = `toast ${type}`;
@@ -64,9 +77,27 @@
     state.selectedDay = null;
   }
 
-  function stopTimer() {
+  function stopTimers() {
     if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
+    if (state.boardTimer) { clearInterval(state.boardTimer); state.boardTimer = null; }
   }
+
+  // ---------- Pastki navigatsiya ----------
+  function showNav(active) {
+    $nav.classList.remove('hidden');
+    $nav.innerHTML = `
+      <button data-v="home" class="${active === 'home' ? 'active' : ''}">${ICONS.home}<span>Bosh sahifa</span></button>
+      <button data-v="board" class="${active === 'board' ? 'active' : ''}">${ICONS.board}<span>Davomat</span></button>
+      <button data-v="calendar" class="${active === 'calendar' ? 'active' : ''}">${ICONS.calendar}<span>Kalendar</span></button>
+    `;
+    $nav.querySelectorAll('button').forEach((b) =>
+      b.addEventListener('click', () => {
+        state.view = b.dataset.v;
+        renderWorkerView();
+      })
+    );
+  }
+  function hideNav() { $nav.classList.add('hidden'); }
 
   // ---------- Modal ----------
   function openModal(html) {
@@ -87,13 +118,11 @@
   const scanner = {
     el: document.getElementById('scanner'),
     video: document.getElementById('scanner-video'),
-    hint: document.getElementById('scanner-hint'),
     stream: null,
     raf: null,
 
     async open(onCode) {
       this.el.classList.remove('hidden');
-      this.hint.textContent = 'QR kodni ramka ichiga joylashtiring';
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
@@ -101,7 +130,7 @@
         });
       } catch {
         this.close();
-        toast("Kameraga ruxsat berilmadi. Brauzer sozlamalaridan kameraga ruxsat bering.", 'error', 5000);
+        toast('Kameraga ruxsat berilmadi. Brauzer sozlamalaridan kameraga ruxsat bering.', 'error', 5000);
         return;
       }
       this.video.srcObject = this.stream;
@@ -142,45 +171,60 @@
   };
   document.getElementById('scanner-cancel').addEventListener('click', () => scanner.close());
 
+  const brandHtml = (sub) => `
+    <div class="brand"><div class="logo">⏱</div><div>LaLaKu Vaqt${sub ? `<small>${sub}</small>` : ''}</div></div>`;
+
   // ================================================================
-  //  ISHCHI: LOGIN
+  //  LOGIN
   // ================================================================
   async function renderWorkerLogin() {
-    stopTimer();
-    $app.className = '';
-    let workers = [];
-    try { workers = await api('/api/workers'); } catch {}
+    stopTimers();
+    hideNav();
+    $app.className = 'no-nav';
+    let workers = [], branches = [];
+    try {
+      [workers, branches] = await Promise.all([api('/api/workers'), api('/api/branches')]);
+    } catch {}
+    const branchName = (id) => branches.find((b) => b.id === id)?.name || '';
 
     $app.innerHTML = `
-      <div class="topbar"><div class="brand"><div class="logo">⏱</div> LaLaKu Vaqt</div></div>
-      <div class="card">
-        <h2>Ismingizni tanlang</h2>
-        <div class="worker-list" id="worker-list">
-          ${workers.length ? workers.map((w) => `
-            <button class="worker-item" data-id="${w.id}" data-name="${esc(w.name)}">
-              <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
-              ${esc(w.name)}
-            </button>`).join('') : `<p class="muted">Hozircha ishchilar qo'shilmagan. Admin panel orqali ishchi qo'shing.</p>`}
-        </div>
+      <div class="topbar">${brandHtml('')}</div>
+      <div class="hero-login">
+        <h1>Xush kelibsiz! 👋</h1>
+        <p>Ismingizni tanlab, parolingiz bilan kiring</p>
       </div>
-      <button class="btn ghost" id="go-admin">Admin panelga kirish</button>
+      <div class="worker-grid">
+        ${workers.length ? workers.map((w) => `
+          <button class="worker-item" data-id="${w.id}" data-name="${esc(w.name)}">
+            <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
+            ${esc(w.name)}
+            ${branches.length > 1 ? `<small>${esc(branchName(w.branchId))}</small>` : ''}
+          </button>`).join('') : `<div class="card" style="grid-column:1/-1"><p class="muted">Hozircha ishchilar qo'shilmagan. Admin panel orqali ishchi qo'shing.</p></div>`}
+      </div>
+      <div class="login-links">
+        <button class="btn outline" id="go-board">📊 Davomat</button>
+        <button class="btn ghost" id="go-admin">Admin panel</button>
+      </div>
     `;
     document.getElementById('go-admin').addEventListener('click', renderAdminLogin);
+    document.getElementById('go-board').addEventListener('click', () => renderPublicBoard());
     document.querySelectorAll('.worker-item').forEach((btn) =>
       btn.addEventListener('click', () => renderPasswordStep(+btn.dataset.id, btn.dataset.name))
     );
   }
 
   function renderPasswordStep(workerId, name) {
+    hideNav();
+    $app.className = 'no-nav';
     $app.innerHTML = `
-      <div class="topbar"><div class="brand"><div class="logo">⏱</div> LaLaKu Vaqt</div></div>
-      <div class="card" style="text-align:center">
-        <span class="avatar" style="background:${avatarColor(name)};margin:0 auto 10px;width:60px;height:60px;font-size:22px;display:flex">${esc(initials(name))}</span>
+      <div class="topbar">${brandHtml('')}</div>
+      <div class="card" style="text-align:center;padding:28px 22px">
+        <span class="avatar" style="background:${avatarColor(name)};margin:0 auto 12px;width:64px;height:64px;font-size:23px;display:flex;border-radius:22px">${esc(initials(name))}</span>
         <h2 style="margin-bottom:4px">${esc(name)}</h2>
         <p class="muted">Parolingizni kiriting</p>
         <form id="pw-form">
           <label style="text-align:left">Parol</label>
-          <input type="password" id="pw-input" autocomplete="current-password" inputmode="numeric" autofocus>
+          <input type="password" id="pw-input" autocomplete="current-password" inputmode="numeric">
           <div class="error-text" id="pw-error"></div>
           <button class="btn" type="submit" style="margin-top:4px">Kirish</button>
         </form>
@@ -197,7 +241,8 @@
         const me = await api('/api/login', { method: 'POST', body: { workerId, password: document.getElementById('pw-input').value } });
         state.me = { role: 'worker', ...me };
         state.month = null;
-        renderWorkerHome();
+        state.view = 'home';
+        renderWorkerView();
       } catch (ex) {
         err.textContent = ex.message;
       }
@@ -205,13 +250,20 @@
   }
 
   // ================================================================
-  //  ISHCHI: BOSH SAHIFA
+  //  ISHCHI KO'RINISHLARI (pastki navigatsiya bilan)
   // ================================================================
-  async function renderWorkerHome() {
-    stopTimer();
+  function renderWorkerView() {
+    stopTimers();
     $app.className = '';
-    const { year, month } = currentMonth();
+    showNav(state.view);
+    if (state.view === 'board') return renderBoard(false);
+    if (state.view === 'calendar') return renderMyCalendar();
+    return renderWorkerHome();
+  }
+
+  async function renderWorkerHome() {
     let status, summary;
+    const { year, month } = { year: new Date().getFullYear(), month: new Date().getMonth() + 1 };
     try {
       [status, summary] = await Promise.all([
         api('/api/my/status'),
@@ -229,43 +281,47 @@
 
     $app.innerHTML = `
       <div class="topbar">
-        <div class="brand"><div class="logo">⏱</div> LaLaKu Vaqt</div>
+        ${brandHtml(esc(state.me.name))}
         <button class="chip gray" id="logout-btn">Chiqish</button>
       </div>
 
-      <div class="card status-card">
-        <span class="status-badge ${status.checkedIn ? 'in' : 'out'}">
-          ${status.checkedIn ? '🟢 Siz ishdasiz' : 'Siz ishda emassiz'}
-        </span>
-        <div class="status-time" id="status-time">${status.checkedIn ? '' : '—'}</div>
-        <div class="status-sub">${status.checkedIn
-          ? `Kelgan vaqtingiz: <b>${status.since}</b>${status.sinceDate !== today ? ` (${status.sinceDate})` : ''}`
-          : `Salom, <b>${esc(state.me.name)}</b>! Ishga kelganingizda QR kodni skanerlang.`}</div>
+      <div class="hero ${status.checkedIn ? 'working' : ''}">
+        <span class="badge">${status.checkedIn ? '<span class="pulse-dot"></span> Siz ishdasiz' : '🌙 Siz ishda emassiz'}</span>
+        <div class="big" id="status-time">${status.checkedIn ? '' : fmtH(todayMin)}</div>
+        <div class="sub">${status.checkedIn
+          ? `Kelgan vaqtingiz: ${status.since}${status.sinceDate !== today ? ` (${status.sinceDate})` : ''}`
+          : (todayMin > 0 ? 'Bugun shuncha ishladingiz. Yaxshi dam oling!' : 'Ishga kelganingizda QR kodni skanerlang')}</div>
       </div>
 
       <button class="scan-btn ${status.checkedIn ? 'leave' : 'arrive'}" id="scan-btn">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></svg>
+        ${ICONS.scan}
         ${status.checkedIn ? 'Ketish — QR skanerlash' : 'Ishga keldim — QR skanerlash'}
       </button>
 
       <div class="stat-row">
         <div class="stat"><div class="value">${fmtH(todayMin)}</div><div class="label">Bugun ishlangan</div></div>
-        <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${MONTHS[month - 1]} jami (soat)</div></div>
+        <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${MONTHS[month - 1]} jami</div></div>
       </div>
 
+      ${todayData ? `
       <div class="card">
-        ${calendarHtml(summary, year, month)}
-        <div class="day-detail ${state.selectedDay ? '' : 'hidden'}" id="day-detail">
-          ${state.selectedDay ? dayDetailHtml(summary, state.selectedDay) : ''}
-        </div>
-      </div>
+        <h2>Bugungi sessiyalar</h2>
+        ${todayData.sessions.map((s) => `
+          <div class="session-row">
+            <span class="times">${s.in} → ${s.out || '<span style="color:var(--green)">ishda</span>'}</span>
+            <span class="dur">${fmtH(s.minutes)} soat</span>
+          </div>`).join('')}
+      </div>` : ''}
     `;
 
     if (status.checkedIn && status.sinceIso) {
       const started = new Date(status.sinceIso);
+      const closedBefore = todayData
+        ? todayData.sessions.filter((s) => s.out).reduce((a, s) => a + s.minutes, 0) : 0;
       const upd = () => {
         const mins = Math.max(0, Math.floor((Date.now() - started) / 60_000));
-        document.getElementById('status-time').textContent = fmtH(mins);
+        const el = document.getElementById('status-time');
+        if (el) el.textContent = fmtH(closedBefore + mins);
       };
       upd();
       state.timerId = setInterval(upd, 15_000);
@@ -284,14 +340,41 @@
           toast(r.action === 'in'
             ? `✅ Xush kelibsiz! Kelish vaqti yozildi: ${r.time}`
             : `👋 Yaxshi boring! Ketish vaqti yozildi: ${r.time}`, 'success', 4500);
-          renderWorkerHome();
+          renderWorkerView();
         } catch (ex) {
           toast(ex.message, 'error', 4500);
         }
       });
     });
+  }
 
-    bindCalendarNav(renderWorkerHome);
+  // ---------- Ishchi: o'z kalendari ----------
+  async function renderMyCalendar() {
+    const { year, month } = currentMonth();
+    let summary;
+    try {
+      summary = await api(`/api/my/summary?year=${year}&month=${month}`);
+    } catch (ex) {
+      if (/kiring/i.test(ex.message)) return renderWorkerLogin();
+      toast(ex.message, 'error');
+      return;
+    }
+
+    $app.innerHTML = `
+      <div class="topbar">${brandHtml(esc(state.me.name))}</div>
+      <div class="stat-row">
+        <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${MONTHS[month - 1]} jami soat</div></div>
+        <div class="stat"><div class="value">${Object.values(summary.days).filter((d) => d.minutes > 0 || d.open).length}</div><div class="label">Ishlangan kunlar</div></div>
+      </div>
+      <div class="card">
+        ${calendarHtml(summary, year, month)}
+        <div class="day-detail ${state.selectedDay ? '' : 'hidden'}" id="day-detail">
+          ${state.selectedDay ? dayDetailHtml(summary, state.selectedDay) : ''}
+        </div>
+      </div>
+    `;
+
+    bindCalendarNav(renderWorkerView);
     bindCalendarCells((date) => {
       state.selectedDay = state.selectedDay === date ? null : date;
       const det = document.getElementById('day-detail');
@@ -299,7 +382,7 @@
         det.innerHTML = dayDetailHtml(summary, state.selectedDay);
         det.classList.remove('hidden');
       } else det.classList.add('hidden');
-      document.querySelectorAll('.cal-cell').forEach((c) => (c.style.outline = c.dataset.date === state.selectedDay ? '2px solid var(--accent)' : ''));
+      document.querySelectorAll('.cal-cell').forEach((c) => c.classList.toggle('selected', c.dataset.date === state.selectedDay));
     });
   }
 
@@ -317,9 +400,10 @@
       if (dd?.open) cls.push('open-day');
       else if (dd && dd.minutes > 0) cls.push('worked');
       if (date === today) cls.push('today');
+      if (date === state.selectedDay) cls.push('selected');
       cells += `<div class="${cls.join(' ')}" data-date="${date}">
         <div class="d">${d}</div>
-        <div class="h">${dd ? (dd.minutes > 0 ? fmtH(dd.minutes) : (dd.open ? '•••' : '')) : ''}</div>
+        <div class="h">${dd && dd.minutes > 0 ? fmtH(dd.minutes) : ''}</div>
       </div>`;
     }
     return `
@@ -336,25 +420,16 @@
 
   function dayDetailHtml(summary, date) {
     const dd = summary.days[date];
-    const [y, m, d] = date.split('-');
+    const [, m, d] = date.split('-');
     const title = `${+d}-${MONTHS[+m - 1].toLowerCase()}`;
     if (!dd) return `<b>${title}</b><p class="muted" style="margin-top:6px">Bu kunda yozuvlar yo'q</p>`;
-    return `<b>${title}</b> — jami ${fmtH(dd.minutes)} soat${dd.open ? ' (davom etmoqda)' : ''}
-      ${dd.sessions.map((s) => {
-        return `<div class="session-row">
-          <span class="times">${s.in} → ${s.out || '...'}</span>
-          <span class="dur">${s.out ? durOf(s) + ' soat' : 'ishda'}</span>
-        </div>`;
-      }).join('')}`;
+    return `<b>${title}</b> — jami <b style="color:var(--green)">${fmtH(dd.minutes)}</b> soat${dd.open ? ' <span style="color:var(--amber)">(davom etmoqda)</span>' : ''}
+      ${dd.sessions.map((s) => `
+        <div class="session-row">
+          <span class="times">${s.in} → ${s.out || '<span style="color:var(--green)">ishda</span>'}</span>
+          <span class="dur">${fmtH(s.minutes)} soat</span>
+        </div>`).join('')}`;
   }
-
-  const durOf = (s) => {
-    const [h1, m1] = s.in.split(':').map(Number);
-    const [h2, m2] = s.out.split(':').map(Number);
-    let mins = h2 * 60 + m2 - (h1 * 60 + m1);
-    if (mins < 0) mins += 24 * 60;
-    return fmtH(mins);
-  };
 
   function bindCalendarNav(rerender) {
     document.getElementById('cal-prev')?.addEventListener('click', () => { shiftMonth(-1); rerender(); });
@@ -367,13 +442,203 @@
   }
 
   // ================================================================
-  //  ADMIN: LOGIN
+  //  DAVOMAT TAXTASI (hamma uchun ochiq)
+  // ================================================================
+  function renderPublicBoard() {
+    stopTimers();
+    hideNav();
+    $app.className = 'no-nav';
+    renderBoard(true);
+  }
+
+  async function renderBoard(isPublic) {
+    const container = () => document.getElementById('board-content');
+
+    $app.innerHTML = `
+      <div class="topbar">
+        ${brandHtml('Davomat nazorati')}
+        ${isPublic ? '<button class="chip gray" id="back-btn">← Kirish</button>' : ''}
+      </div>
+      <div class="segment">
+        <button data-m="today" class="${state.boardMode === 'today' ? 'active' : ''}">Bugun</button>
+        <button data-m="month" class="${state.boardMode === 'month' ? 'active' : ''}">Oylik</button>
+      </div>
+      <div id="board-content"><div class="loading-screen" style="padding-top:60px"><div class="spinner"></div></div></div>
+    `;
+    if (isPublic) document.getElementById('back-btn').addEventListener('click', renderWorkerLogin);
+    document.querySelectorAll('.segment button').forEach((b) =>
+      b.addEventListener('click', () => {
+        state.boardMode = b.dataset.m;
+        isPublic ? renderPublicBoard() : renderBoard(false);
+      })
+    );
+
+    try {
+      if (state.boardMode === 'today') {
+        await renderBoardToday(container());
+        // Jonli yangilanish: har 60 soniyada
+        state.boardTimer = setInterval(async () => {
+          const el = container();
+          if (el) { try { await renderBoardToday(el); } catch {} }
+          else stopTimers();
+        }, 60_000);
+      } else {
+        await renderBoardMonth(container());
+      }
+    } catch (ex) {
+      container().innerHTML = `<div class="card"><p class="error-text">${esc(ex.message)}</p></div>`;
+    }
+  }
+
+  async function renderBoardToday(box) {
+    const data = await api('/api/board');
+    const multi = data.branches.length > 1;
+    const branchChips = multi ? `
+      <div class="branch-chips">
+        <button class="branch-chip ${state.boardBranch === 0 ? 'active' : ''}" data-b="0">Hammasi</button>
+        ${data.branches.map((b) => `<button class="branch-chip ${state.boardBranch === b.id ? 'active' : ''}" data-b="${b.id}">${esc(b.name)}</button>`).join('')}
+      </div>` : '';
+
+    const filtered = data.workers.filter((w) => !state.boardBranch || w.branchId === state.boardBranch);
+    const atWork = filtered.filter((w) => w.status === 'in').length;
+    const [y, m, d] = data.date.split('-');
+
+    const rowHtml = (w) => `
+      <div class="board-row ${w.status === 'in' ? 'working' : ''}">
+        <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
+        <div class="info">
+          <div class="name">${esc(w.name)}</div>
+          <div class="meta">
+            ${w.status === 'in' ? `<span class="status-tag in"><span class="pulse-dot"></span>Ishda</span> ${w.since} dan beri`
+              : w.status === 'out' ? `<span class="status-tag out">Ketgan</span> ${w.since} da kelgan edi`
+              : `<span class="status-tag none">Kelmagan</span>`}
+          </div>
+        </div>
+        <div class="hours">
+          <div class="v">${fmtH(w.minutes)}</div>
+          <div class="l">soat bugun</div>
+        </div>
+      </div>`;
+
+    let listHtml;
+    if (multi && !state.boardBranch) {
+      listHtml = data.branches.map((b) => {
+        const ws = filtered.filter((w) => w.branchId === b.id);
+        if (!ws.length) return '';
+        return `<div class="branch-title">${esc(b.name)}</div>` + ws.map(rowHtml).join('');
+      }).join('');
+    } else {
+      listHtml = filtered.map(rowHtml).join('');
+    }
+
+    box.innerHTML = `
+      <div class="board-date">${+d}-${MONTHS[+m - 1].toLowerCase()} ${y} · soat ${data.time} · <b style="color:var(--green)">${atWork} kishi ishda</b></div>
+      ${branchChips}
+      ${listHtml || `<div class="card"><p class="muted">Ishchilar yo'q</p></div>`}
+    `;
+    box.querySelectorAll('.branch-chip').forEach((c) =>
+      c.addEventListener('click', () => { state.boardBranch = +c.dataset.b; renderBoardToday(box); })
+    );
+  }
+
+  async function renderBoardMonth(box) {
+    const { year, month } = currentMonth();
+    const data = await api(`/api/board/summary?year=${year}&month=${month}`);
+    box.innerHTML = summaryTableHtml(data, { editable: false });
+    bindSummaryTable(box, data, { editable: false, rerender: () => renderBoardMonth(box) });
+  }
+
+  // ---------- Oylik jadval (umumiy renderer: taxta va admin) ----------
+  function summaryTableHtml(data, { editable }) {
+    const { year, month } = data;
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const multi = data.branches.length > 1;
+    const branch = editable ? state.adminBranch : state.boardBranch;
+    const workers = data.workers.filter((w) =>
+      (editable || w.active) && (!branch || w.branchId === branch));
+
+    const branchChips = multi ? `
+      <div class="branch-chips">
+        <button class="branch-chip ${branch === 0 ? 'active' : ''}" data-b="0">Hammasi</button>
+        ${data.branches.map((b) => `<button class="branch-chip ${branch === b.id ? 'active' : ''}" data-b="${b.id}">${esc(b.name)}</button>`).join('')}
+      </div>` : '';
+
+    const headCells = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dow = new Date(year, month - 1, d).getDay();
+      headCells.push(`<th class="${dow === 0 || dow === 6 ? 'wknd' : ''}">${d}<br><span style="font-weight:700;opacity:.75">${DOWS[(dow + 6) % 7]}</span></th>`);
+    }
+
+    const rows = workers.map((w) => {
+      let cells = '';
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = `${year}-${pad(month)}-${pad(d)}`;
+        const dd = w.days[date];
+        const cls = dd ? (dd.open ? 'day-cell open' : 'day-cell has') : 'day-cell';
+        cells += `<td class="${cls}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${dd ? fmtH(dd.minutes) : '·'}</td>`;
+      }
+      return `<tr>
+        <td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}${w.active ? '' : '<span class="badge-inactive">nofaol</span>'}</td>
+        ${cells}
+        <td class="total-col">${fmtH(w.totalMinutes)}</td>
+      </tr>`;
+    }).join('');
+
+    const grandTotal = workers.reduce((a, w) => a + w.totalMinutes, 0);
+
+    return `
+      <div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:16px 18px">
+        <div class="cal-title">${MONTHS[month - 1]} ${year}</div>
+        <div style="display:flex;align-items:center;gap:12px">
+          <span class="muted">Umumiy: <b style="color:var(--accent)">${fmtH(grandTotal)}</b> soat</span>
+          <div class="cal-nav">
+            <button id="cal-prev">‹</button>
+            <button id="cal-next">›</button>
+          </div>
+        </div>
+      </div>
+      ${branchChips}
+      ${workers.length ? `
+      <div class="table-wrap">
+        <table class="summary">
+          <thead><tr><th class="name-col">Ishchi</th>${headCells.join('')}<th class="total-col">Jami</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+      <p class="muted" style="margin:10px 4px 0">${editable
+        ? "Katakni bosib kun tafsilotini ko'ring yoki vaqtni tahrirlang."
+        : "Soatlar S:DD formatida. To'q sariq — hozir ishda."}</p>
+      ` : `<div class="card"><p class="muted">Ishchilar yo'q</p></div>`}
+    `;
+  }
+
+  function bindSummaryTable(box, data, { editable, rerender }) {
+    bindCalendarNav(rerender);
+    box.querySelectorAll('.branch-chip').forEach((c) =>
+      c.addEventListener('click', () => {
+        if (editable) state.adminBranch = +c.dataset.b;
+        else state.boardBranch = +c.dataset.b;
+        rerender();
+      })
+    );
+    if (!editable) return;
+    box.querySelectorAll('td.day-cell').forEach((td) =>
+      td.addEventListener('click', () => openDayModal(+td.dataset.worker, td.dataset.name, td.dataset.date))
+    );
+    box.querySelectorAll('td.name-col').forEach((td) =>
+      td.addEventListener('click', () => openDayModal(+td.dataset.worker, td.dataset.name, todayStr()))
+    );
+  }
+
+  // ================================================================
+  //  ADMIN
   // ================================================================
   function renderAdminLogin() {
-    stopTimer();
-    $app.className = '';
+    stopTimers();
+    hideNav();
+    $app.className = 'no-nav';
     $app.innerHTML = `
-      <div class="topbar"><div class="brand"><div class="logo">⏱</div> LaLaKu Vaqt — Admin</div></div>
+      <div class="topbar">${brandHtml('Admin')}</div>
       <div class="card">
         <h2>Admin panel</h2>
         <form id="admin-form">
@@ -403,23 +668,21 @@
     });
   }
 
-  // ================================================================
-  //  ADMIN: PANEL
-  // ================================================================
   async function renderAdmin() {
-    stopTimer();
+    stopTimers();
+    hideNav();
     $app.className = 'wide';
     $app.innerHTML = `
       <div class="topbar">
-        <div class="brand"><div class="logo">⏱</div> LaLaKu Vaqt — Admin</div>
+        ${brandHtml('Admin panel')}
         <button class="chip gray" id="logout-btn">Chiqish</button>
       </div>
       <div class="tabs">
         <button class="tab ${state.adminTab === 'calendar' ? 'active' : ''}" data-tab="calendar">📅 Kalendar</button>
         <button class="tab ${state.adminTab === 'workers' ? 'active' : ''}" data-tab="workers">👥 Ishchilar</button>
-        <button class="tab ${state.adminTab === 'qr' ? 'active' : ''}" data-tab="qr">🔳 QR kod</button>
+        <button class="tab ${state.adminTab === 'branches' ? 'active' : ''}" data-tab="branches">🏢 Filiallar va QR</button>
       </div>
-      <div id="tab-content"><div class="loading-screen"><div class="spinner"></div></div></div>
+      <div id="tab-content"><div class="loading-screen" style="padding-top:80px"><div class="spinner"></div></div></div>
     `;
     document.getElementById('logout-btn').addEventListener('click', async () => {
       await api('/api/logout', { method: 'POST' });
@@ -434,7 +697,7 @@
     try {
       if (state.adminTab === 'calendar') await adminCalendarTab(box);
       else if (state.adminTab === 'workers') await adminWorkersTab(box);
-      else await adminQrTab(box);
+      else await adminBranchesTab(box);
     } catch (ex) {
       if (/kiring/i.test(ex.message)) return renderAdminLogin();
       box.innerHTML = `<div class="card"><p class="error-text">${esc(ex.message)}</p></div>`;
@@ -445,61 +708,8 @@
   async function adminCalendarTab(box) {
     const { year, month } = currentMonth();
     const data = await api(`/api/admin/summary?year=${year}&month=${month}`);
-    const daysInMonth = new Date(year, month, 0).getDate();
-    const today = todayStr();
-
-    const headCells = [];
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dow = new Date(year, month - 1, d).getDay();
-      headCells.push(`<th class="${dow === 0 || dow === 6 ? 'wknd' : ''}">${d}<br><span style="font-weight:600;opacity:.7">${DOWS[(dow + 6) % 7]}</span></th>`);
-    }
-
-    const rows = data.workers.map((w) => {
-      let cells = '';
-      for (let d = 1; d <= daysInMonth; d++) {
-        const date = `${year}-${pad(month)}-${pad(d)}`;
-        const dd = w.days[date];
-        const cls = dd ? (dd.open ? 'day-cell open' : 'day-cell has') : 'day-cell';
-        cells += `<td class="${cls}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${dd ? (dd.minutes > 0 ? fmtH(dd.minutes) : '•') : '·'}</td>`;
-      }
-      return `<tr>
-        <td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}${w.active ? '' : '<span class="badge-inactive">nofaol</span>'}</td>
-        ${cells}
-        <td class="total-col">${fmtH(w.totalMinutes)}</td>
-      </tr>`;
-    }).join('');
-
-    const grandTotal = data.workers.reduce((a, w) => a + w.totalMinutes, 0);
-
-    box.innerHTML = `
-      <div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <div class="cal-title" style="font-size:18px">${MONTHS[month - 1]} ${year}</div>
-        <div style="display:flex;align-items:center;gap:12px">
-          <span class="muted">Umumiy: <b style="color:var(--accent)">${fmtH(grandTotal)}</b> soat</span>
-          <div class="cal-nav">
-            <button id="cal-prev">‹</button>
-            <button id="cal-next">›</button>
-          </div>
-        </div>
-      </div>
-      ${data.workers.length ? `
-      <div class="table-wrap">
-        <table class="summary">
-          <thead><tr><th class="name-col">Ishchi</th>${headCells.join('')}<th class="total-col">Jami</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-      <p class="muted" style="margin-top:10px">Katakni bosib kun tafsilotini ko'ring yoki vaqtni tahrirlang. Soatlar S:DD formatida.</p>
-      ` : `<div class="card"><p class="muted">Ishchilar yo'q. «Ishchilar» bo'limidan qo'shing.</p></div>`}
-    `;
-
-    bindCalendarNav(renderAdmin);
-    box.querySelectorAll('td.day-cell').forEach((td) =>
-      td.addEventListener('click', () => openDayModal(+td.dataset.worker, td.dataset.name, td.dataset.date))
-    );
-    box.querySelectorAll('td.name-col').forEach((td) =>
-      td.addEventListener('click', () => openDayModal(+td.dataset.worker, td.dataset.name, today))
-    );
+    box.innerHTML = summaryTableHtml(data, { editable: true });
+    bindSummaryTable(box, data, { editable: true, rerender: renderAdmin });
   }
 
   // Kun tafsiloti + tahrirlash oynasi
@@ -514,7 +724,7 @@
         <h2 style="margin:0">${esc(name)} — ${+d}-${MONTHS[m - 1].toLowerCase()}</h2>
         <button class="modal-close" id="m-close">✕</button>
       </div>
-      <p class="muted">Jami: <b>${fmtH(dd.minutes)}</b> soat${dd.open ? ' (hozir ishda)' : ''}</p>
+      <p class="muted">Jami: <b style="color:var(--green)">${fmtH(dd.minutes)}</b> soat${dd.open ? ' <span style="color:var(--amber)">(hozir ishda)</span>' : ''}</p>
       <div id="m-sessions">
         ${dd.sessions.map((s) => `
           <div class="entry-edit-row" data-entry="${s.id}">
@@ -525,7 +735,7 @@
             <button class="chip red e-del" title="O'chirish">🗑</button>
           </div>`).join('') || `<p class="muted" style="padding:8px 0">Bu kunda yozuvlar yo'q</p>`}
       </div>
-      <div style="border-top:1.5px solid var(--line);margin-top:14px;padding-top:12px">
+      <div style="border-top:1.5px solid var(--line);margin-top:16px;padding-top:14px">
         <b style="font-size:14px">Qo'lda yozuv qo'shish</b>
         <div class="entry-edit-row">
           <input type="time" id="new-in">
@@ -576,30 +786,39 @@
 
   // ---------- Admin: Ishchilar ----------
   async function adminWorkersTab(box) {
-    const workers = await api('/api/admin/workers');
+    const [workers, branches] = await Promise.all([
+      api('/api/admin/workers'),
+      api('/api/branches'),
+    ]);
+    const branchName = (id) => branches.find((b) => b.id === id)?.name || '—';
+    const branchOptions = (sel) => branches.map((b) => `<option value="${b.id}" ${b.id === sel ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
+
     box.innerHTML = `
-      <div class="card" style="max-width:560px">
+      <div class="card" style="max-width:600px">
         <h2>Yangi ishchi qo'shish</h2>
         <form id="add-form">
           <div class="form-row">
             <div><label>Ism familiya</label><input id="add-name" placeholder="Masalan: Aziz Karimov"></div>
             <div><label>Parol</label><input id="add-pw" placeholder="Kamida 4 belgi"></div>
           </div>
+          ${branches.length > 1 ? `<label>Filial</label><select id="add-branch">${branchOptions(branches[0].id)}</select>` : ''}
           <div class="error-text" id="add-error"></div>
           <button class="btn" type="submit">＋ Qo'shish</button>
         </form>
       </div>
-      <div class="card" style="max-width:560px">
+      <div class="card" style="max-width:600px">
         <h2>Ishchilar (${workers.length})</h2>
         ${workers.map((w) => `
           <div class="worker-admin-row" data-id="${w.id}">
             <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
             <div class="info">
               <div class="name">${esc(w.name)}${w.active ? '' : '<span class="badge-inactive">nofaol</span>'}</div>
+              <div class="sub">${esc(branchName(w.branchId))}</div>
             </div>
             <div class="actions">
               <button class="chip w-pw" title="Parolni almashtirish">🔑 Parol</button>
-              <button class="chip gray w-toggle">${w.active ? '⏸ Nofaol' : '▶ Faollash'}</button>
+              ${branches.length > 1 ? `<button class="chip w-branch" title="Filialni o'zgartirish">🏢</button>` : ''}
+              <button class="chip gray w-toggle">${w.active ? '⏸' : '▶'}</button>
               <button class="chip red w-del">🗑</button>
             </div>
           </div>`).join('') || `<p class="muted">Hozircha ishchilar yo'q</p>`}
@@ -613,7 +832,11 @@
       try {
         await api('/api/admin/workers', {
           method: 'POST',
-          body: { name: document.getElementById('add-name').value, password: document.getElementById('add-pw').value },
+          body: {
+            name: document.getElementById('add-name').value,
+            password: document.getElementById('add-pw').value,
+            branchId: document.getElementById('add-branch')?.value,
+          },
         });
         toast("Ishchi qo'shildi", 'success');
         renderAdmin();
@@ -630,6 +853,23 @@
           .then(() => toast("Parol o'zgartirildi", 'success'))
           .catch((ex) => toast(ex.message, 'error'));
       });
+      row.querySelector('.w-branch')?.addEventListener('click', () => {
+        const modal = openModal(`
+          <div class="modal-head"><h2 style="margin:0">${esc(w.name)} — filial</h2><button class="modal-close" id="m-close">✕</button></div>
+          <label>Filialni tanlang</label>
+          <select id="b-select">${branchOptions(w.branchId)}</select>
+          <button class="btn" id="b-save" style="margin-top:16px">Saqlash</button>
+        `);
+        modal.querySelector('#m-close').addEventListener('click', closeModal);
+        modal.querySelector('#b-save').addEventListener('click', async () => {
+          try {
+            await api(`/api/admin/workers/${id}`, { method: 'PUT', body: { branchId: modal.querySelector('#b-select').value } });
+            toast("Filial o'zgartirildi", 'success');
+            closeModal();
+            renderAdmin();
+          } catch (ex) { toast(ex.message, 'error'); }
+        });
+      });
       row.querySelector('.w-toggle').addEventListener('click', async () => {
         try {
           await api(`/api/admin/workers/${id}`, { method: 'PUT', body: { active: !w.active } });
@@ -637,7 +877,7 @@
         } catch (ex) { toast(ex.message, 'error'); }
       });
       row.querySelector('.w-del').addEventListener('click', async () => {
-        if (!confirm(`${w.name} o'chirilsinmi? Barcha vaqt yozuvlari ham o'chadi! (Vaqtincha yashirish uchun «Nofaol» tugmasini ishlating.)`)) return;
+        if (!confirm(`${w.name} o'chirilsinmi? Barcha vaqt yozuvlari ham o'chadi! (Vaqtincha yashirish uchun ⏸ tugmasini ishlating.)`)) return;
         try {
           await api(`/api/admin/workers/${id}`, { method: 'DELETE' });
           toast("O'chirildi", 'success');
@@ -647,31 +887,85 @@
     });
   }
 
-  // ---------- Admin: QR kod ----------
-  async function adminQrTab(box) {
-    const qr = await api('/api/admin/qr');
+  // ---------- Admin: Filiallar va QR ----------
+  async function adminBranchesTab(box) {
+    const branches = await api('/api/admin/branches');
     box.innerHTML = `
-      <div class="card qr-box" style="max-width:560px">
-        <h2>Ish joyi QR kodi</h2>
-        <p class="muted" style="margin-bottom:14px">Bu kodni chop etib, ish joyiga (kiraverishga) osib qo'ying.
-        Ishchilar kelganda va ketganda shu kodni skanerlashadi.</p>
-        <div class="print-area">
-          <img src="${qr.dataUrl}" alt="QR kod">
-          <div style="font-weight:800;font-size:20px">LaLaKu Vaqt — davomat QR kodi</div>
-        </div>
-        <div style="display:flex;gap:10px;margin-top:16px">
-          <button class="btn outline" id="qr-print">🖨 Chop etish</button>
-          <button class="btn red" id="qr-rotate">♻️ Yangi kod</button>
-        </div>
-        <p class="muted" style="margin-top:12px;font-size:13px">«Yangi kod» bosilsa eski chop etilgan kod ishlamay qoladi — yangisini chop etish kerak bo'ladi.</p>
+      <div class="card" style="max-width:600px">
+        <h2>Yangi filial (ish joyi) qo'shish</h2>
+        <p class="muted" style="margin-bottom:10px">Har bir ish joyining o'z QR kodi bo'ladi. Ishchi qaysi joyda skanerlashi farqsiz — vaqt hisoblanadi.</p>
+        <form id="add-branch-form">
+          <div class="form-row">
+            <input id="branch-name" placeholder="Masalan: Chilonzor filiali">
+            <button class="btn" type="submit" style="flex:0 0 auto;width:auto;padding:14px 22px">＋ Qo'shish</button>
+          </div>
+          <div class="error-text" id="branch-error"></div>
+        </form>
       </div>
+      ${branches.map((b) => `
+        <div class="card qr-card" style="max-width:600px" data-id="${b.id}">
+          <div class="modal-head" style="margin-bottom:4px">
+            <h2 style="margin:0">🏢 ${esc(b.name)}</h2>
+            <span class="muted">${b.workers} ishchi</span>
+          </div>
+          <div class="print-area" data-branch="${b.id}">
+            <img src="${b.dataUrl}" alt="QR kod">
+            <div class="pt">${esc(b.name)} — davomat QR kodi</div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap;justify-content:center">
+            <button class="chip b-print">🖨 Chop etish</button>
+            <button class="chip gray b-rename">✏️ Nomi</button>
+            <button class="chip red b-rotate">♻️ Yangi QR</button>
+            <button class="chip red b-del">🗑</button>
+          </div>
+        </div>`).join('')}
+      <p class="muted" style="max-width:600px">«Yangi QR» bosilsa shu filialning eski chop etilgan kodi ishlamay qoladi — yangisini chop eting.</p>
     `;
-    document.getElementById('qr-print').addEventListener('click', () => window.print());
-    document.getElementById('qr-rotate').addEventListener('click', async () => {
-      if (!confirm('Yangi QR kod yaratilsinmi? Eski kod ishlamay qoladi.')) return;
-      await api('/api/admin/qr/rotate', { method: 'POST' });
-      toast('Yangi QR kod yaratildi', 'success');
-      renderAdmin();
+
+    document.getElementById('add-branch-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('branch-error');
+      err.textContent = '';
+      try {
+        await api('/api/admin/branches', { method: 'POST', body: { name: document.getElementById('branch-name').value } });
+        toast("Filial qo'shildi", 'success');
+        renderAdmin();
+      } catch (ex) { err.textContent = ex.message; }
+    });
+
+    box.querySelectorAll('.card[data-id]').forEach((card) => {
+      const id = card.dataset.id;
+      const b = branches.find((x) => String(x.id) === id);
+      card.querySelector('.b-print').addEventListener('click', () => {
+        // Faqat shu filial QR'i chop etilsin
+        document.querySelectorAll('.print-area').forEach((p) => p.classList.toggle('hidden', p.dataset.branch !== id));
+        window.print();
+        document.querySelectorAll('.print-area').forEach((p) => p.classList.remove('hidden'));
+      });
+      card.querySelector('.b-rename').addEventListener('click', async () => {
+        const name = prompt('Filialning yangi nomi:', b.name);
+        if (!name) return;
+        try {
+          await api(`/api/admin/branches/${id}`, { method: 'PUT', body: { name } });
+          renderAdmin();
+        } catch (ex) { toast(ex.message, 'error'); }
+      });
+      card.querySelector('.b-rotate').addEventListener('click', async () => {
+        if (!confirm(`${b.name} uchun yangi QR kod yaratilsinmi? Eski kod ishlamay qoladi.`)) return;
+        try {
+          await api(`/api/admin/branches/${id}/qr/rotate`, { method: 'POST' });
+          toast('Yangi QR kod yaratildi', 'success');
+          renderAdmin();
+        } catch (ex) { toast(ex.message, 'error'); }
+      });
+      card.querySelector('.b-del').addEventListener('click', async () => {
+        if (!confirm(`${b.name} o'chirilsinmi?`)) return;
+        try {
+          await api(`/api/admin/branches/${id}`, { method: 'DELETE' });
+          toast("O'chirildi", 'success');
+          renderAdmin();
+        } catch (ex) { toast(ex.message, 'error'); }
+      });
     });
   }
 
@@ -684,7 +978,7 @@
     }
     try {
       const me = await api('/api/me');
-      if (me.role === 'worker') { state.me = me; return renderWorkerHome(); }
+      if (me.role === 'worker') { state.me = me; state.view = 'home'; return renderWorkerView(); }
       if (me.role === 'admin') { state.me = me; return renderAdmin(); }
     } catch {}
     renderWorkerLogin();

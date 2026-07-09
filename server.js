@@ -25,12 +25,20 @@ const pool = new Pool({
   ssl: /railway|render|heroku|amazonaws/.test(DATABASE_URL) ? { rejectUnauthorized: false } : false,
 });
 
+const newQrToken = () => 'LALAKU:' + crypto.randomBytes(12).toString('hex');
+
 // ---------- Ma'lumotlar bazasi sxemasi ----------
 async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS branches (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      qr_token TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS workers (
       id SERIAL PRIMARY KEY,
@@ -48,31 +56,27 @@ async function initDb() {
       CONSTRAINT out_after_in CHECK (check_out IS NULL OR check_out > check_in)
     );
     CREATE INDEX IF NOT EXISTS idx_entries_worker_date ON entries(worker_id, work_date);
+    ALTER TABLE workers ADD COLUMN IF NOT EXISTS branch_id INTEGER REFERENCES branches(id);
+    ALTER TABLE entries ADD COLUMN IF NOT EXISTS branch_id INTEGER;
   `);
 
-  // Sessiya kaliti va QR token — bir marta yaratiladi va bazada saqlanadi,
+  // Sessiya kaliti — bir marta yaratiladi va bazada saqlanadi,
   // shunda server qayta ishga tushganda sessiyalar bekor bo'lmaydi.
-  await ensureSetting('session_secret', () => crypto.randomBytes(32).toString('hex'));
-  await ensureSetting('qr_token', () => 'LALAKU:' + crypto.randomBytes(12).toString('hex'));
-}
-
-async function ensureSetting(key, makeValue) {
   await pool.query(
-    `INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
-    [key, makeValue()]
+    `INSERT INTO settings (key, value) VALUES ('session_secret', $1) ON CONFLICT (key) DO NOTHING`,
+    [crypto.randomBytes(32).toString('hex')]
   );
-}
 
-async function getSetting(key) {
-  const r = await pool.query(`SELECT value FROM settings WHERE key = $1`, [key]);
-  return r.rows[0] ? r.rows[0].value : null;
-}
-
-async function setSetting(key, value) {
+  // Eski versiyadan ko'chirish: kamida bitta filial bo'lsin,
+  // eski umumiy qr_token birinchi filialga o'tadi.
+  const branchCount = (await pool.query(`SELECT count(*)::int AS n FROM branches`)).rows[0].n;
+  if (branchCount === 0) {
+    const old = (await pool.query(`SELECT value FROM settings WHERE key = 'qr_token'`)).rows[0];
+    await pool.query(`INSERT INTO branches (name, qr_token) VALUES ($1, $2)`,
+      ['Asosiy ish joyi', old ? old.value : newQrToken()]);
+  }
   await pool.query(
-    `INSERT INTO settings (key, value) VALUES ($1, $2)
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-    [key, value]
+    `UPDATE workers SET branch_id = (SELECT min(id) FROM branches) WHERE branch_id IS NULL`
   );
 }
 
@@ -161,10 +165,15 @@ function requireAdmin(req, res, next) {
 // ---------- Umumiy API ----------
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
-// Login sahifasi uchun ishchilar ro'yxati (faqat ism va id)
+app.get('/api/branches', wrap(async (req, res) => {
+  const r = await pool.query(`SELECT id, name FROM branches ORDER BY id`);
+  res.json(r.rows);
+}));
+
+// Login sahifasi uchun ishchilar ro'yxati (faqat ism, id, filial)
 app.get('/api/workers', wrap(async (req, res) => {
   const r = await pool.query(
-    `SELECT id, name FROM workers WHERE active ORDER BY name`
+    `SELECT id, name, branch_id AS "branchId" FROM workers WHERE active ORDER BY name`
   );
   res.json(r.rows);
 }));
@@ -205,6 +214,46 @@ app.get('/api/me', wrap(async (req, res) => {
   res.json({ role: 'worker', ...r.rows[0] });
 }));
 
+// ---------- Ochiq davomat taxtasi (loginsiz) ----------
+
+// Bugungi jonli holat: kim ishda, kim ketdi, necha soat ishladi
+app.get('/api/board', wrap(async (req, res) => {
+  const today = localDate();
+  const branches = (await pool.query(`SELECT id, name FROM branches ORDER BY id`)).rows;
+  const rows = (await pool.query(
+    `SELECT w.id, w.name, w.branch_id AS "branchId",
+            COALESCE(SUM(ROUND(EXTRACT(EPOCH FROM (COALESCE(e.check_out, now()) - e.check_in)) / 60)), 0)::int AS minutes,
+            BOOL_OR(e.check_out IS NULL) AS open,
+            MIN(e.check_in) AS first_in
+     FROM workers w
+     LEFT JOIN entries e ON e.worker_id = w.id AND e.work_date = $1
+     WHERE w.active
+     GROUP BY w.id
+     ORDER BY w.name`,
+    [today]
+  )).rows;
+  res.json({
+    date: today,
+    time: localTime(),
+    branches,
+    workers: rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      branchId: r.branchId,
+      minutes: r.minutes,
+      status: r.open ? 'in' : (r.minutes > 0 ? 'out' : 'none'),
+      since: r.first_in ? localTime(r.first_in) : null,
+    })),
+  });
+}));
+
+// Oylik jamlanma — hamma uchun ochiq (faqat o'qish)
+app.get('/api/board/summary', wrap(async (req, res) => {
+  const { year, month } = parseYearMonth(req, res);
+  if (!year) return;
+  res.json(await monthSummary(year, month));
+}));
+
 // ---------- Ishchi API ----------
 
 // Hozirgi holat: ochiq (yakunlanmagan) sessiya bormi
@@ -226,8 +275,10 @@ app.get('/api/my/status', requireWorker, wrap(async (req, res) => {
 // QR skanerlash: ochiq sessiya bo'lmasa kelish, bo'lsa ketish vaqti yoziladi
 app.post('/api/scan', requireWorker, wrap(async (req, res) => {
   const { code } = req.body || {};
-  const qrToken = await getSetting('qr_token');
-  if (String(code || '').trim() !== qrToken) {
+  const branch = (await pool.query(
+    `SELECT id, name FROM branches WHERE qr_token = $1`, [String(code || '').trim()]
+  )).rows[0];
+  if (!branch) {
     return res.status(400).json({ error: "QR kod noto'g'ri. Ish joyidagi QR kodni skanerlang." });
   }
 
@@ -245,14 +296,14 @@ app.post('/api/scan', requireWorker, wrap(async (req, res) => {
       return res.status(400).json({ error: "Siz hozirgina kelganingizni belgiladingiz. Ketishda qayta skanerlang." });
     }
     await pool.query(`UPDATE entries SET check_out = $1 WHERE id = $2`, [now, open.id]);
-    return res.json({ action: 'out', time: localTime(now), date: localDate(now) });
+    return res.json({ action: 'out', time: localTime(now), date: localDate(now), branch: branch.name });
   }
 
   await pool.query(
-    `INSERT INTO entries (worker_id, work_date, check_in) VALUES ($1, $2, $3)`,
-    [req.workerId, localDate(now), now]
+    `INSERT INTO entries (worker_id, work_date, check_in, branch_id) VALUES ($1, $2, $3, $4)`,
+    [req.workerId, localDate(now), now, branch.id]
   );
-  res.json({ action: 'in', time: localTime(now), date: localDate(now) });
+  res.json({ action: 'in', time: localTime(now), date: localDate(now), branch: branch.name });
 }));
 
 // Oylik hisobot (o'zi uchun)
@@ -278,10 +329,12 @@ const monthBounds = (year, month) => {
   return { start, next };
 };
 
+// Ochiq sessiyalar ham jonli hisoblanadi (check_out o'rniga hozirgi vaqt)
 async function workerMonth(workerId, year, month) {
   const { start, next } = monthBounds(year, month);
   const r = await pool.query(
-    `SELECT id, work_date::text AS date, check_in, check_out
+    `SELECT id, work_date::text AS date, check_in, check_out,
+            ROUND(EXTRACT(EPOCH FROM (COALESCE(check_out, now()) - check_in)) / 60)::int AS minutes
      FROM entries
      WHERE worker_id = $1 AND work_date >= $2 AND work_date < $3
      ORDER BY check_in`,
@@ -291,17 +344,42 @@ async function workerMonth(workerId, year, month) {
   let totalMinutes = 0;
   for (const e of r.rows) {
     const d = (days[e.date] ||= { sessions: [], minutes: 0, open: false });
-    const session = { id: e.id, in: localTime(e.check_in), out: e.check_out ? localTime(e.check_out) : null };
-    d.sessions.push(session);
-    if (e.check_out) {
-      const mins = Math.round((new Date(e.check_out) - new Date(e.check_in)) / 60_000);
-      d.minutes += mins;
-      totalMinutes += mins;
-    } else {
-      d.open = true;
-    }
+    d.sessions.push({ id: e.id, in: localTime(e.check_in), out: e.check_out ? localTime(e.check_out) : null, minutes: e.minutes });
+    d.minutes += e.minutes;
+    totalMinutes += e.minutes;
+    if (!e.check_out) d.open = true;
   }
   return { year, month, days, totalMinutes };
+}
+
+// Barcha ishchilar bo'yicha oylik jamlanma (jonli)
+async function monthSummary(year, month) {
+  const { start, next } = monthBounds(year, month);
+  const workers = (await pool.query(
+    `SELECT id, name, active, branch_id AS "branchId" FROM workers ORDER BY active DESC, name`
+  )).rows;
+  const branches = (await pool.query(`SELECT id, name FROM branches ORDER BY id`)).rows;
+  const sums = (await pool.query(
+    `SELECT worker_id, work_date::text AS date,
+            SUM(ROUND(EXTRACT(EPOCH FROM (COALESCE(check_out, now()) - check_in)) / 60))::int AS minutes,
+            BOOL_OR(check_out IS NULL) AS open
+     FROM entries
+     WHERE work_date >= $1 AND work_date < $2
+     GROUP BY worker_id, work_date`,
+    [start, next]
+  )).rows;
+  const byWorker = {};
+  for (const s of sums) {
+    (byWorker[s.worker_id] ||= {})[s.date] = { minutes: s.minutes, open: s.open };
+  }
+  return {
+    year, month, branches,
+    workers: workers.map((w) => {
+      const days = byWorker[w.id] || {};
+      const totalMinutes = Object.values(days).reduce((a, d) => a + d.minutes, 0);
+      return { id: w.id, name: w.name, active: w.active, branchId: w.branchId, days, totalMinutes };
+    }),
+  };
 }
 
 // ---------- Admin API ----------
@@ -309,7 +387,7 @@ async function workerMonth(workerId, year, month) {
 // Ishchilar ro'yxati (batafsil)
 app.get('/api/admin/workers', requireAdmin, wrap(async (req, res) => {
   const r = await pool.query(
-    `SELECT id, name, active, created_at FROM workers ORDER BY active DESC, name`
+    `SELECT id, name, active, branch_id AS "branchId", created_at FROM workers ORDER BY active DESC, name`
   );
   res.json(r.rows);
 }));
@@ -317,19 +395,26 @@ app.get('/api/admin/workers', requireAdmin, wrap(async (req, res) => {
 app.post('/api/admin/workers', requireAdmin, wrap(async (req, res) => {
   const name = String((req.body || {}).name || '').trim();
   const password = String((req.body || {}).password || '');
+  let branchId = parseInt((req.body || {}).branchId, 10);
   if (!name) return res.status(400).json({ error: 'Ism kiriting' });
   if (password.length < 4) return res.status(400).json({ error: "Parol kamida 4 belgidan iborat bo'lsin" });
+  if (!branchId) {
+    branchId = (await pool.query(`SELECT min(id) AS id FROM branches`)).rows[0].id;
+  } else if (!(await pool.query(`SELECT id FROM branches WHERE id = $1`, [branchId])).rows[0]) {
+    return res.status(400).json({ error: 'Filial topilmadi' });
+  }
   const hash = await bcrypt.hash(password, 10);
   const r = await pool.query(
-    `INSERT INTO workers (name, password_hash) VALUES ($1, $2) RETURNING id, name, active, created_at`,
-    [name, hash]
+    `INSERT INTO workers (name, password_hash, branch_id) VALUES ($1, $2, $3)
+     RETURNING id, name, active, branch_id AS "branchId", created_at`,
+    [name, hash, branchId]
   );
   res.json(r.rows[0]);
 }));
 
 app.put('/api/admin/workers/:id', requireAdmin, wrap(async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const { name, password, active } = req.body || {};
+  const { name, password, active, branchId } = req.body || {};
   const w = (await pool.query(`SELECT id FROM workers WHERE id = $1`, [id])).rows[0];
   if (!w) return res.status(404).json({ error: 'Ishchi topilmadi' });
   if (name !== undefined) {
@@ -344,6 +429,11 @@ app.put('/api/admin/workers/:id', requireAdmin, wrap(async (req, res) => {
   if (active !== undefined) {
     await pool.query(`UPDATE workers SET active = $1 WHERE id = $2`, [!!active, id]);
   }
+  if (branchId !== undefined) {
+    const b = (await pool.query(`SELECT id FROM branches WHERE id = $1`, [parseInt(branchId, 10)])).rows[0];
+    if (!b) return res.status(400).json({ error: 'Filial topilmadi' });
+    await pool.query(`UPDATE workers SET branch_id = $1 WHERE id = $2`, [b.id, id]);
+  }
   res.json({ ok: true });
 }));
 
@@ -352,36 +442,11 @@ app.delete('/api/admin/workers/:id', requireAdmin, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// Oylik jamlanma: barcha ishchilar, kunlik daqiqalar va jami
+// Oylik jamlanma (admin — tahrirlash huquqi bilan ishlatiladi)
 app.get('/api/admin/summary', requireAdmin, wrap(async (req, res) => {
   const { year, month } = parseYearMonth(req, res);
   if (!year) return;
-  const { start, next } = monthBounds(year, month);
-  const workers = (await pool.query(
-    `SELECT id, name, active FROM workers ORDER BY active DESC, name`
-  )).rows;
-  const sums = (await pool.query(
-    `SELECT worker_id, work_date::text AS date,
-            SUM(CASE WHEN check_out IS NOT NULL
-                THEN ROUND(EXTRACT(EPOCH FROM (check_out - check_in)) / 60) ELSE 0 END)::int AS minutes,
-            BOOL_OR(check_out IS NULL) AS open
-     FROM entries
-     WHERE work_date >= $1 AND work_date < $2
-     GROUP BY worker_id, work_date`,
-    [start, next]
-  )).rows;
-  const byWorker = {};
-  for (const s of sums) {
-    (byWorker[s.worker_id] ||= {})[s.date] = { minutes: s.minutes, open: s.open };
-  }
-  res.json({
-    year, month,
-    workers: workers.map((w) => {
-      const days = byWorker[w.id] || {};
-      const totalMinutes = Object.values(days).reduce((a, d) => a + d.minutes, 0);
-      return { id: w.id, name: w.name, active: w.active, days, totalMinutes };
-    }),
-  });
+  res.json(await monthSummary(year, month));
 }));
 
 // Bitta ishchining oylik tafsiloti (admin ko'rinishida)
@@ -400,16 +465,17 @@ app.post('/api/admin/entries', requireAdmin, wrap(async (req, res) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error: "Sana noto'g'ri" });
   if (!/^\d{2}:\d{2}$/.test(String(inTime || ''))) return res.status(400).json({ error: "Kelish vaqti noto'g'ri (SS:DD)" });
   if (outTime && !/^\d{2}:\d{2}$/.test(String(outTime))) return res.status(400).json({ error: "Ketish vaqti noto'g'ri (SS:DD)" });
-  const w = (await pool.query(`SELECT id FROM workers WHERE id = $1`, [parseInt(workerId, 10)])).rows[0];
+  const w = (await pool.query(`SELECT id, branch_id FROM workers WHERE id = $1`, [parseInt(workerId, 10)])).rows[0];
   if (!w) return res.status(404).json({ error: 'Ishchi topilmadi' });
   try {
     await pool.query(
-      `INSERT INTO entries (worker_id, work_date, check_in, check_out)
+      `INSERT INTO entries (worker_id, work_date, check_in, check_out, branch_id)
        VALUES ($1, $2::date,
                ($2 || ' ' || $3)::timestamp AT TIME ZONE $5,
                CASE WHEN $4::text IS NULL THEN NULL
-                    ELSE ($2 || ' ' || $4)::timestamp AT TIME ZONE $5 END)`,
-      [w.id, date, inTime, outTime || null, TIMEZONE]
+                    ELSE ($2 || ' ' || $4)::timestamp AT TIME ZONE $5 END,
+               $6)`,
+      [w.id, date, inTime, outTime || null, TIMEZONE, w.branch_id]
     );
   } catch (e) {
     if (e.constraint === 'out_after_in') {
@@ -451,19 +517,55 @@ app.delete('/api/admin/entries/:id', requireAdmin, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// QR kod (chop etish uchun)
-app.get('/api/admin/qr', requireAdmin, wrap(async (req, res) => {
-  const token = await getSetting('qr_token');
-  const dataUrl = await QRCode.toDataURL(token, { width: 512, margin: 2 });
-  res.json({ token, dataUrl });
+// ---------- Filiallar (admin) ----------
+app.get('/api/admin/branches', requireAdmin, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT b.id, b.name, b.qr_token AS token,
+            (SELECT count(*)::int FROM workers w WHERE w.branch_id = b.id AND w.active) AS workers
+     FROM branches b ORDER BY b.id`
+  );
+  const out = [];
+  for (const b of r.rows) {
+    out.push({ ...b, dataUrl: await QRCode.toDataURL(b.token, { width: 512, margin: 2 }) });
+  }
+  res.json(out);
 }));
 
-// QR kodni yangilash (eski chop etilgan kod ishlamay qoladi)
-app.post('/api/admin/qr/rotate', requireAdmin, wrap(async (req, res) => {
-  const token = 'LALAKU:' + crypto.randomBytes(12).toString('hex');
-  await setSetting('qr_token', token);
-  const dataUrl = await QRCode.toDataURL(token, { width: 512, margin: 2 });
-  res.json({ token, dataUrl });
+app.post('/api/admin/branches', requireAdmin, wrap(async (req, res) => {
+  const name = String((req.body || {}).name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Filial nomini kiriting' });
+  const r = await pool.query(
+    `INSERT INTO branches (name, qr_token) VALUES ($1, $2) RETURNING id, name`,
+    [name, newQrToken()]
+  );
+  res.json(r.rows[0]);
+}));
+
+app.put('/api/admin/branches/:id', requireAdmin, wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const name = String((req.body || {}).name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Filial nomini kiriting' });
+  const r = await pool.query(`UPDATE branches SET name = $1 WHERE id = $2 RETURNING id`, [name, id]);
+  if (!r.rows[0]) return res.status(404).json({ error: 'Filial topilmadi' });
+  res.json({ ok: true });
+}));
+
+app.delete('/api/admin/branches/:id', requireAdmin, wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const n = (await pool.query(`SELECT count(*)::int AS n FROM branches`)).rows[0].n;
+  if (n <= 1) return res.status(400).json({ error: "Kamida bitta filial qolishi kerak" });
+  const used = (await pool.query(`SELECT count(*)::int AS n FROM workers WHERE branch_id = $1`, [id])).rows[0].n;
+  if (used > 0) return res.status(400).json({ error: "Avval bu filialdagi ishchilarni boshqa filialga o'tkazing" });
+  await pool.query(`DELETE FROM branches WHERE id = $1`, [id]);
+  res.json({ ok: true });
+}));
+
+// Filial QR kodini yangilash (eski chop etilgan kod ishlamay qoladi)
+app.post('/api/admin/branches/:id/qr/rotate', requireAdmin, wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = await pool.query(`UPDATE branches SET qr_token = $1 WHERE id = $2 RETURNING id`, [newQrToken(), id]);
+  if (!r.rows[0]) return res.status(404).json({ error: 'Filial topilmadi' });
+  res.json({ ok: true });
 }));
 
 // SPA: qolgan barcha yo'llar index.html'ga
@@ -479,7 +581,7 @@ app.use((err, req, res, next) => {
 
 initDb()
   .then(async () => {
-    SESSION_SECRET = await getSetting('session_secret');
+    SESSION_SECRET = (await pool.query(`SELECT value FROM settings WHERE key = 'session_secret'`)).rows[0].value;
     app.listen(PORT, () => console.log(`LaLaKu Vaqt ${PORT}-portda ishlamoqda (${TIMEZONE})`));
   })
   .catch((e) => {
