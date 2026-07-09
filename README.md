@@ -8,8 +8,10 @@ Oylik kalendarda har bir kun va jami ishlangan soatlar ko'rinib turadi.
 **Ishchi uchun:**
 - Ismini tanlab, parol bilan kiradi
 - «Ishga keldim» → QR skanerlash → kelish vaqti yoziladi
-- «Ketish» → QR skanerlash → ketish vaqti yoziladi
+- «Ketish» → QR skanerlash → ketish vaqti yoziladi (tungi smena ham ishlaydi)
 - Oylik kalendar: har kun necha soat ishlagani, oy jami
+- Soatlik maosh va soliq foizini kiritib, oylik daromadni avtomatik hisoblash
+- Til tanlash: o'zbek / ingliz / koreys
 - Telefonga ilova sifatida o'rnatiladi (PWA)
 
 **Admin uchun:**
@@ -26,7 +28,7 @@ Oylik kalendarda har bir kun va jami ishlangan soatlar ko'rinib turadi.
    - `DATABASE_URL` → `${{Postgres.DATABASE_URL}}` (Railway reference)
    - `ADMIN_PASSWORD` → o'zingizning maxfiy admin parolingiz
    - `NODE_ENV` → `production`
-   - `TIMEZONE` → `Asia/Tashkent` (standart shu)
+   - Vaqt zonasi admin paneldagi «Sozlamalar» bo'limidan tanlanadi (masalan Asia/Seoul)
 4. Deploy bo'lgach, domen oching: `Settings` → `Networking` → `Generate Domain`
 
 > Kamera (QR skaner) faqat HTTPS'da ishlaydi — Railway domenlari avtomatik HTTPS bo'ladi.

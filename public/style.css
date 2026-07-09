@@ -58,8 +58,9 @@ body {
 h1 { font-size: 24px; font-weight: 800; letter-spacing: -.4px; }
 h2 { font-size: 17px; font-weight: 800; margin-bottom: 12px; letter-spacing: -.2px; }
 
-.topbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 2px 18px; }
-.brand { display: flex; align-items: center; gap: 11px; font-weight: 800; font-size: 19px; letter-spacing: -.3px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 2px 18px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; letter-spacing: -.3px; white-space: nowrap; min-width: 0; }
+.brand small { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 .brand .logo {
   width: 40px; height: 40px; border-radius: 13px;
   background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -106,6 +107,20 @@ label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); 
   padding: 8px 13px; border-radius: 11px; font-size: 13px; font-weight: 700;
   background: var(--accent-soft); color: var(--accent); border: none;
 }
+
+.lang-sel {
+  width: auto; padding: 8px 28px 8px 12px; border: none; border-radius: 11px;
+  background-color: #eceef6; color: var(--muted); font-size: 13px; font-weight: 700;
+  background-position: right 9px center;
+}
+
+.sal-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 0; border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.sal-row:last-child { border-bottom: none; }
+.sal-row.net { font-size: 17px; font-weight: 800; }
 .chip.red { background: var(--red-soft); color: var(--red); }
 .chip.gray { background: #eceef6; color: var(--muted); }
 
