@@ -1,5 +1,5 @@
 /* LaLaKu Vaqt — service worker (PWA) */
-const CACHE = 'lalaku-v2';
+const CACHE = 'lalaku-v3';
 const STATIC = ['/', '/style.css', '/app.js', '/vendor/jsQR.js', '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'];
 
 self.addEventListener('install', (e) => {
