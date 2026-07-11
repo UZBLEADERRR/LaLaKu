@@ -39,13 +39,13 @@
   }
 
   // ---------- Mavzu ----------
-  const THEMES = ['classic', 'kakao', 'mint', 'dark'];
+  const THEMES = ['classic', 'kakao', 'kakaodark', 'mint', 'dark'];
   let THEME = localStorage.getItem('lalaku_theme') || 'classic';
   if (!THEMES.includes(THEME)) THEME = 'classic';
   function applyTheme() {
     document.documentElement.dataset.theme = THEME;
     document.querySelector('meta[name=theme-color]')?.setAttribute('content',
-      { classic: '#5b5bd6', kakao: '#FEE500', mint: '#0d9488', dark: '#12141f' }[THEME]);
+      { classic: '#5b5bd6', kakao: '#FEE500', kakaodark: '#241a16', mint: '#0d9488', dark: '#12141f' }[THEME]);
   }
   applyTheme();
 
@@ -99,21 +99,63 @@
     timerId: null,
   };
 
-  // ---------- API ----------
+  // ---------- Akkauntlar (bitta qurilmada bir nechta, Telegram kabi) ----------
+  const getAccounts = () => { try { return JSON.parse(localStorage.getItem('lalaku_accounts')) || []; } catch { return []; } };
+  const saveAccounts = (a) => localStorage.setItem('lalaku_accounts', JSON.stringify(a));
+  const activeAccount = () => getAccounts()[+localStorage.getItem('lalaku_active') || 0] || null;
+  function upsertAccount(me) {
+    const a = getAccounts();
+    const entry = { id: me.id, name: me.name, email: me.email, type: me.type, token: me.token };
+    const i = a.findIndex((x) => x.id === me.id);
+    if (i >= 0) a[i] = entry; else a.push(entry);
+    saveAccounts(a);
+    localStorage.setItem('lalaku_active', String(a.findIndex((x) => x.id === me.id)));
+  }
+  function removeActiveAccount() {
+    const a = getAccounts();
+    a.splice(+localStorage.getItem('lalaku_active') || 0, 1);
+    saveAccounts(a);
+    localStorage.setItem('lalaku_active', '0');
+  }
+
+  // ---------- API (oflayn kesh bilan: GET javoblari saqlanadi) ----------
+  const CACHEABLE = ['/api/me', '/api/my/summary', '/api/jobs', '/api/finance', '/api/my/status'];
+  const cacheKey = (url) => `lalaku_c_${activeAccount()?.id || 0}_${url}`;
   async function api(url, opts = {}) {
-    const res = await fetch(url, {
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      ...opts,
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const e = new Error(data.error || t('genericError'));
-      e.code = data.code;
+    const isGet = !opts.method || opts.method === 'GET';
+    const acc = activeAccount();
+    try {
+      const res = await fetch(url, {
+        headers: {
+          'Content-Type': 'application/json',
+          ...(acc?.token ? { Authorization: 'Bearer ' + acc.token } : {}),
+        },
+        credentials: 'same-origin',
+        ...opts,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const e = new Error(data.error || t('genericError'));
+        e.code = data.code;
+        throw e;
+      }
+      if (isGet && CACHEABLE.some((p) => url.startsWith(p))) {
+        try { localStorage.setItem(cacheKey(url), JSON.stringify(data)); } catch {}
+      }
+      state.offline = false;
+      return data;
+    } catch (e) {
+      // Tarmoq xatosida keshdan o'qiymiz — ilova oflayn ham ko'rsatadi
+      if (isGet && !e.code) {
+        const cached = localStorage.getItem(cacheKey(url));
+        if (cached) {
+          state.offline = true;
+          return JSON.parse(cached);
+        }
+      }
       throw e;
     }
-    return data;
   }
 
   // ---------- Yordamchilar ----------
@@ -192,6 +234,16 @@
       hasRate = (me.payType === 'daily' ? me.dailyRate : me.hourlyRate) > 0 || jobs.some((j) => j.rate > 0);
     }
     return { gross, tax, net: gross - tax, hasRate, parts };
+  }
+
+  // Bitta ish joyi (yoki umumiy) uchun sof daromad
+  function jobEarn(job, minutes, daysCount) {
+    const me = state.me;
+    const payType = job ? job.payType : me.payType;
+    const rate = job ? job.rate : (me.payType === 'daily' ? me.dailyRate : me.hourlyRate);
+    const taxP = job ? job.taxPercent : me.taxPercent;
+    const g = payType === 'daily' ? daysCount * rate : (minutes / 60) * rate;
+    return { gross: g, net: g * (1 - taxP / 100), hasRate: rate > 0 };
   }
 
   // Kalendarni bitta ish joyi bo'yicha filtrlash
@@ -342,9 +394,22 @@
             <label>${t('yourName')}</label>
             <input id="auth-name" autocomplete="name">
           ` : ''}
-          <label>${t('email')}</label>
-          <input id="auth-email" type="email" autocomplete="email" inputmode="email">
-          <label>${t('password')}</label>
+          ${mode === 'login' ? `
+          <div class="segment" style="margin-top:8px">
+            <button type="button" data-lm="email" class="${state.loginMode !== 'phone' ? 'active' : ''}">${t('loginEmail')}</button>
+            <button type="button" data-lm="phone" class="${state.loginMode === 'phone' ? 'active' : ''}">${t('loginPhone')}</button>
+          </div>` : ''}
+          <div id="f-email" class="${mode === 'login' && state.loginMode === 'phone' ? 'hidden' : ''}">
+            <label>${t('email')}</label>
+            <input id="auth-email" type="email" autocomplete="email" inputmode="email">
+          </div>
+          <div id="f-phone" class="${mode === 'signup' || state.loginMode === 'phone' ? '' : 'hidden'}">
+            <label>${t('phone')}</label>
+            <input id="auth-phone" type="tel" inputmode="tel" placeholder="010-1234-5678">
+            <label>${t('birthdate')}</label>
+            <input id="auth-bd" type="date">
+          </div>
+          <label>${mode === 'signup' ? t('pwOptional') : (state.loginMode === 'phone' ? t('pwIfSet') : t('password'))}</label>
           <input id="auth-pw" type="password" autocomplete="${mode === 'signup' ? 'new-password' : 'current-password'}">
           <div class="error-text" id="auth-error"></div>
           <button class="btn" type="submit">${mode === 'signup' ? t('signUp') : t('signIn')}</button>
@@ -367,25 +432,40 @@
         }));
     }
 
+    document.querySelectorAll('[data-lm]').forEach((b) =>
+      b.addEventListener('click', () => { state.loginMode = b.dataset.lm; renderAuth('login'); }));
+
     document.getElementById('auth-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const err = document.getElementById('auth-error');
       err.textContent = '';
       try {
-        const body = {
-          email: document.getElementById('auth-email').value,
-          password: document.getElementById('auth-pw').value,
-        };
+        const body = { password: document.getElementById('auth-pw').value || undefined };
         let me;
         if (mode === 'signup') {
+          body.email = document.getElementById('auth-email').value;
+          body.phone = document.getElementById('auth-phone')?.value || undefined;
+          body.birthdate = document.getElementById('auth-bd')?.value || undefined;
           body.name = document.getElementById('auth-name').value;
           body.type = document.querySelector('input[name=acctype]:checked').value;
           body.businessName = document.getElementById('auth-bizname')?.value || '';
+          // Qurilmada bitta ishchi akkaunt qoidasi
+          if (body.type === 'worker' && getAccounts().some((a) => a.type === 'worker')) {
+            err.textContent = t('onlyOneWorker');
+            return;
+          }
           me = await api('/api/register', { method: 'POST', body });
+        } else if (state.loginMode === 'phone') {
+          body.phone = document.getElementById('auth-phone').value;
+          body.birthdate = document.getElementById('auth-bd').value || undefined;
+          me = await api('/api/login', { method: 'POST', body });
         } else {
+          body.email = document.getElementById('auth-email').value;
           me = await api('/api/login', { method: 'POST', body });
         }
+        upsertAccount(me);
         state.me = me;
+        state.addingAccount = false;
         await afterAuth();
       } catch (ex) { err.textContent = terr(ex); }
     });
@@ -495,6 +575,7 @@
     if (state.view === 'finance') return renderFinance();
     if (state.view === 'profile') return renderProfile();
     if (state.view === 'forecast') return renderForecast();
+    if (state.view === 'wp') return renderWorkplace();
     return renderWorkerHome();
   }
 
@@ -521,12 +602,13 @@
     const todayMin = summary.days[today] ? summary.days[today].minutes : 0;
     const e = computeEarnings(summary, jobs);
 
-    // Har bir ish joyining bu oydagi soatlari
-    const perJobMin = {};
-    for (const d of Object.values(summary.days)) {
+    // Har bir ish joyining bu oydagi soatlari va kunlari
+    const perJobMin = {}, perJobDays = {};
+    for (const [dt, d] of Object.entries(summary.days)) {
       for (const sess of d.sessions) {
         const k = sess.jobId || 0;
         perJobMin[k] = (perJobMin[k] || 0) + sess.minutes;
+        (perJobDays[k] ||= new Set()).add(dt);
       }
     }
 
@@ -568,16 +650,17 @@
             : `<button class="wp-btn start" data-orgstart="${obj.orgId}">${t('startBtn')}</button>`)
           : `<button class="wp-btn start" data-jobstart="${obj.id}">${t('startBtn')}</button>`;
       }
-      const rate = isTeam ? teamJob : obj;
-      const rateTxt = rate && rate.rate > 0
-        ? `${fmtMoney(rate.rate)}/${rate.payType === 'daily' ? t('dUnit') : t('hUnit')}` : '';
+      const rateJob = isTeam ? teamJob : obj;
+      const earn = jobEarn(rateJob, mins, (perJobDays[jid] || new Set()).size);
+      const earnTxt = earn.hasRate && earn.net > 0 ? ` · <b style="color:var(--green)">${fmtMoney(earn.net)}</b>` : '';
       return `
-      <div class="wp-card ${isActive ? 'active' : ''} ${otherActive ? 'dim' : ''}">
+      <div class="wp-card ${isActive ? 'active' : ''} ${otherActive ? 'dim' : ''}"
+           data-wp="${isTeam ? 'team' : 'job'}" data-wpjob="${jid}" data-wporg="${isTeam ? obj.orgId : ''}">
         <span class="avatar" style="background:${avatarColor(name)}">${isTeam ? '🍽' : esc(initials(name))}</span>
-        <div class="info">
+        <div class="info wp-open">
           <div class="name">${esc(name)}${isTeam ? ` <span class="tag-team">${t('teamTag')}</span>` : ''}
             ${isActive ? `<span class="tag-live"><span class="pulse-dot"></span>${t('activeTag')}</span>` : ''}</div>
-          <div class="sub">${fmtH(mins)} ${t('hUnit')}${rateTxt ? ` · ${rateTxt}` : ''}</div>
+          <div class="sub">${fmtH(mins)} ${t('hUnit')}${earnTxt}</div>
         </div>
         ${action}
       </div>`;
@@ -589,6 +672,7 @@
 
     $app.innerHTML = `
       <div class="topbar">${brandHtml(me.name)}</div>
+      ${state.offline ? `<div class="sub-banner warn">${t('offlineTag')}</div>` : ''}
       ${subBannerHtml()}
       ${invitesHtml}
 
@@ -653,6 +737,20 @@
       b.addEventListener('click', async () => {
         const loc = status.orgId ? await getLoc() : {};
         doAction(() => api('/api/punch', { method: 'POST', body: { ...loc } }));
+      }));
+
+    document.querySelectorAll('.wp-card .wp-open').forEach((el) =>
+      el.addEventListener('click', () => {
+        const card = el.closest('.wp-card');
+        state.wp = {
+          kind: card.dataset.wp,
+          jobId: +card.dataset.wpjob || 0,
+          orgId: card.dataset.wporg ? +card.dataset.wporg : null,
+        };
+        state.month = null;
+        state.selectedDay = null;
+        state.view = 'wp';
+        renderWorker();
       }));
 
     document.querySelectorAll('.invite-card').forEach((card) => {
@@ -747,6 +845,94 @@
   }
 
   // ---------- Kalendar (ishchi) ----------
+  // Bitta ish joyi tafsiloti: statistika, daromad, kalendar, sozlamalar
+  async function renderWorkplace() {
+    const wp = state.wp;
+    if (!wp) { state.view = 'home'; return renderWorker(); }
+    const { year, month } = currentMonth();
+    let fullSummary, jobs;
+    try {
+      [fullSummary, jobs] = await Promise.all([
+        api(`/api/my/summary?year=${year}&month=${month}`),
+        api('/api/jobs'),
+      ]);
+    } catch (ex) {
+      if (ex.code === 'AUTH') return renderAuth();
+      toast(terr(ex), 'error');
+      return;
+    }
+    const job = jobs.find((j) => j.id === wp.jobId) || null;
+    const isTeam = wp.kind === 'team';
+    const name = job ? job.name : (state.me.memberships.find((m) => m.orgId === wp.orgId)?.orgName || '');
+    const summary = filterSummary(fullSummary, wp.jobId);
+    const e = jobEarn(job, summary.totalMinutes, summary.daysWorked);
+    const taxP = job ? job.taxPercent : state.me.taxPercent;
+
+    $app.innerHTML = `
+      <div class="topbar">
+        ${brandHtml(t('wpDetail'))}
+        <button class="chip gray" id="back-btn">${t('back')}</button>
+      </div>
+
+      <div class="card" style="display:flex;align-items:center;gap:14px">
+        <span class="avatar" style="background:${avatarColor(name)};width:54px;height:54px;font-size:19px;border-radius:18px">${isTeam ? '🍽' : esc(initials(name))}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:800;font-size:17px">${esc(name)}${isTeam ? ` <span class="tag-team">${t('teamTag')}</span>` : ''}</div>
+          <div class="muted" style="font-size:13px">${job && job.rate > 0 ? `${fmtMoney(job.rate)}/${job.payType === 'daily' ? t('dUnit') : t('hUnit')}${taxP ? ` · −${taxP}%` : ''}` : t('salaryHint')}</div>
+        </div>
+        <button class="chip gray" id="wp-edit">✏️</button>
+      </div>
+
+      <div class="stat-row">
+        <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthHours', MONTHS()[month - 1])}</div></div>
+        <div class="stat"><div class="value">${summary.daysWorked}</div><div class="label">${t('daysWorked')}</div></div>
+        ${e.hasRate ? `<div class="stat"><div class="value" style="color:var(--green)">${fmtMoney(e.net)}</div><div class="label">${t('earnedFrom')}</div></div>` : ''}
+      </div>
+
+      <div class="card">
+        ${calendarHtml(summary, year, month)}
+        <div class="day-detail ${state.selectedDay ? '' : 'hidden'}" id="day-detail"></div>
+      </div>
+
+      ${!isTeam ? `<button class="btn outline" id="wp-move" style="margin-bottom:10px">${t('moveOld')}</button>` : ''}
+      ${isTeam ? `<button class="btn ghost" id="wp-leave" style="color:var(--red)">${t('leaveTeam')} — ${esc(name)}</button>` : ''}
+    `;
+    document.getElementById('back-btn').addEventListener('click', () => { state.view = 'home'; state.month = null; renderWorker(); });
+    document.getElementById('wp-edit').addEventListener('click', () => job && openJobModal(job));
+    bindCalendarNav(renderWorker);
+
+    const showDetail = () => {
+      const det = document.getElementById('day-detail');
+      if (!state.selectedDay) { det.classList.add('hidden'); return; }
+      det.innerHTML = dayDetailHtml(summary, state.selectedDay);
+      det.classList.remove('hidden');
+      bindDayDetail(det, summary, jobs, state.selectedDay);
+    };
+    showDetail();
+    bindCalendarCells((date) => {
+      state.selectedDay = state.selectedDay === date ? null : date;
+      showDetail();
+      document.querySelectorAll('.cal-cell').forEach((c) => c.classList.toggle('selected', c.dataset.date === state.selectedDay));
+    });
+
+    document.getElementById('wp-move')?.addEventListener('click', async () => {
+      try {
+        const r = await api('/api/my/entries/assign', { method: 'POST', body: { jobId: wp.jobId } });
+        toast(t('movedN', r.moved), 'success');
+        renderWorker();
+      } catch (ex) { toast(terr(ex), 'error'); }
+    });
+    document.getElementById('wp-leave')?.addEventListener('click', async () => {
+      if (!confirm(t('leaveTeamConfirm', name))) return;
+      try {
+        await api(`/api/my/memberships/${wp.orgId}`, { method: 'DELETE' });
+        state.me = await api('/api/me');
+        state.view = 'home';
+        renderWorker();
+      } catch (ex) { toast(terr(ex), 'error'); }
+    });
+  }
+
   async function renderMyCalendar() {
     const { year, month } = currentMonth();
     let fullSummary, jobs;
@@ -776,6 +962,7 @@
       <div class="stat-row">
         <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthHours', MONTHS()[month - 1])}</div></div>
         <div class="stat"><div class="value">${summary.daysWorked}</div><div class="label">${t('daysWorked')}</div></div>
+        <div class="stat"><div class="value" style="color:var(--green)">${fmtMoney(computeEarnings(summary, jobs).net)}</div><div class="label">${t('monthNetShort')}</div></div>
       </div>
       <div class="card">
         ${calendarHtml(summary, year, month)}
@@ -977,41 +1164,26 @@
       (i.dueDay || (i.dueDate && i.dueDate.startsWith(`${year}-${pad(month)}`)))).reduce((a, i) => a + i.amount, 0);
     const leftOver = e.net + incomes - expenses - debtsMonth;
 
-    // Eslatmalar: 7 kun ichida to'lanishi kerak bo'lganlar
     const reminders = act
       .filter((i) => i.kind !== 'income')
       .map((i) => ({ ...i, days: nextDue(i) }))
       .filter((i) => i.days !== null && i.days <= 7)
       .sort((a, b) => a.days - b.days);
+    maybeNotify(reminders);
 
-    const kindSection = (kind, titleKey) => {
-      const list = items.filter((i) => i.kind === kind);
-      return `
-        <div class="card">
-          <div class="modal-head" style="margin-bottom:8px">
-            <h2 style="margin:0">${t(titleKey)}</h2>
-            <button class="chip" data-add="${kind}">${t('add')}</button>
-          </div>
-          ${list.length ? list.map((i) => `
-            <div class="fin-row ${i.active ? '' : 'paid'}" data-id="${i.id}">
-              <div class="info">
-                <div class="name">${esc(i.title)}${i.active ? '' : ` <span class="badge-inactive">${t('paidTag')}</span>`}</div>
-                <div class="sub">${i.dueDay ? t('everyMonthDay').split('(')[0].trim() + ': ' + i.dueDay : (i.dueDate || '')}</div>
-              </div>
-              <b class="amt ${kind === 'income' ? 'plus' : ''}">${kind === 'income' ? '+' : '−'}${fmtMoney(i.amount)}</b>
-              <div class="actions">
-                ${kind === 'debt' ? `<button class="chip gray f-paid">${i.active ? t('markPaid') : t('markUnpaid')}</button>` : ''}
-                <button class="chip red f-del">🗑</button>
-              </div>
-            </div>`).join('') : `<p class="muted">${t('noFinance')}</p>`}
-        </div>`;
-    };
+    if (!['expense', 'debt', 'income'].includes(state.finKind)) state.finKind = 'expense';
+    const list = items.filter((i) => i.kind === state.finKind);
 
     $app.innerHTML = `
-      <div class="topbar">${brandHtml(state.me.name)}</div>
+      <div class="topbar">
+        ${brandHtml(state.me.name)}
+        <div style="display:flex;gap:8px">
+          <button class="chip gray" id="salary-gear">⚙️</button>
+          <button class="chip gray" id="forecast-btn">🔮</button>
+        </div>
+      </div>
 
       <div class="card remain-card">
-        <h2>${t('remaining')}</h2>
         <div class="sal-row"><span class="muted">${t('monthEarn')}</span><b>${fmtMoney(e.net)}</b></div>
         ${incomes ? `<div class="sal-row"><span class="muted">${t('otherIncome')}</span><b style="color:var(--green)">+${fmtMoney(incomes)}</b></div>` : ''}
         ${expenses ? `<div class="sal-row"><span class="muted">${t('monthExpenses')}</span><b style="color:var(--red)">−${fmtMoney(expenses)}</b></div>` : ''}
@@ -1019,35 +1191,46 @@
         <div class="sal-row net"><span>${t('leftOver')}</span><b style="color:${leftOver >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtMoney(leftOver)}</b></div>
       </div>
 
-      <div class="btn-row">
-        <button class="btn outline" id="salary-gear">⚙️ ${t('paySettings')}</button>
-        <button class="btn outline" id="forecast-btn">${t('forecastBtn').replace(/🔮 .*/, '🔮')} ${t('forecast').replace('🔮 ', '')}</button>
-      </div>
-
+      ${reminders.length ? `
       <div class="card">
-        <h2>${t('reminders')}</h2>
-        ${reminders.length ? reminders.map((r) => `
+        ${reminders.map((r) => `
           <div class="fin-row">
             <div class="info">
               <div class="name">${esc(r.title)}</div>
-              <div class="sub ${r.days <= 0 ? 'urgent' : ''}">${t('dueInDays', r.days)}</div>
+              <div class="sub ${r.days <= 0 ? 'urgent' : ''}">🔔 ${t('dueInDays', r.days)}</div>
             </div>
             <b class="amt">−${fmtMoney(r.amount)}</b>
-          </div>`).join('') : `<p class="muted">${t('noReminders')}</p>`}
+          </div>`).join('')}
+      </div>` : ''}
+
+      <div class="card">
+        <div class="modal-head" style="margin-bottom:10px">
+          <div class="segment" style="margin:0;flex:1">
+            ${['expense', 'debt', 'income'].map((k) => `
+              <button data-fk="${k}" class="${state.finKind === k ? 'active' : ''}">${{ expense: '🏠', debt: '💸', income: '💰' }[k]} ${t('kind' + k[0].toUpperCase() + k.slice(1))}</button>`).join('')}
+          </div>
+          <button class="chip" data-add="${state.finKind}" style="margin-left:8px">＋</button>
+        </div>
+        ${list.length ? list.map((i) => `
+          <div class="fin-row ${i.active ? '' : 'paid'}" data-id="${i.id}">
+            <div class="info">
+              <div class="name">${esc(i.title)}${i.active ? '' : ` <span class="badge-inactive">${t('paidTag')}</span>`}</div>
+              <div class="sub">${i.dueDay ? `📅 ${i.dueDay}` : (i.dueDate || '')}</div>
+            </div>
+            <b class="amt ${state.finKind === 'income' ? 'plus' : ''}">${state.finKind === 'income' ? '+' : '−'}${fmtMoney(i.amount)}</b>
+            <div class="actions">
+              ${state.finKind === 'debt' ? `<button class="chip gray f-paid" style="padding:6px 9px">${i.active ? '✓' : '↩'}</button>` : ''}
+              <button class="chip red f-del" style="padding:6px 9px">🗑</button>
+            </div>
+          </div>`).join('') : `<p class="muted">${t('noFinance')}</p>`}
       </div>
-
-      <p class="muted" style="margin:0 4px 14px">${t('financeNote')}</p>
-
-      ${kindSection('expense', 'kindExpensePl')}
-      ${kindSection('debt', 'kindDebtPl')}
-      ${kindSection('income', 'kindIncomePl')}
     `;
     bindSalaryCard(renderWorker);
     document.getElementById('forecast-btn').addEventListener('click', () => { state.view = 'forecast'; renderWorker(); });
-
+    document.querySelectorAll('[data-fk]').forEach((b) =>
+      b.addEventListener('click', () => { state.finKind = b.dataset.fk; renderWorker(); }));
     document.querySelectorAll('[data-add]').forEach((b) =>
       b.addEventListener('click', () => openFinanceModal(b.dataset.add)));
-
     document.querySelectorAll('.fin-row[data-id]').forEach((row) => {
       const id = row.dataset.id;
       const item = items.find((i) => String(i.id) === id);
@@ -1061,11 +1244,28 @@
         if (!confirm(t('delEntryConfirm'))) return;
         try {
           await api(`/api/finance/${id}`, { method: 'DELETE' });
-          toast(t('deleted'), 'success');
           renderWorker();
         } catch (ex) { toast(terr(ex), 'error'); }
       });
     });
+  }
+
+  // ---------- Bildirishnomalar ----------
+  const notifEnabled = () => localStorage.getItem('lalaku_notif') === '1' &&
+    'Notification' in window && Notification.permission === 'granted';
+  function maybeNotify(reminders) {
+    if (!notifEnabled()) return;
+    const today = todayStr();
+    if (localStorage.getItem('lalaku_notif_last') === today) return;
+    const due = reminders.filter((r) => r.days <= 0);
+    if (!due.length) return;
+    try {
+      new Notification('LaLaKu Vaqt', {
+        body: due.map((d) => `${d.title}: ${fmtMoney(d.amount)}`).join('\n'),
+        icon: '/icons/icon-192.png',
+      });
+      localStorage.setItem('lalaku_notif_last', today);
+    } catch {}
   }
 
   function openFinanceModal(kind) {
@@ -1177,14 +1377,82 @@
   }
 
   // ---------- Profil (ishchi) ----------
+  // Akkauntlar kartasi (Telegram kabi almashish)
+  function accountsCardHtml() {
+    const accounts = getAccounts();
+    const activeIdx = +localStorage.getItem('lalaku_active') || 0;
+    return `
+      <div class="card">
+        <div class="modal-head" style="margin-bottom:6px"><h2 style="margin:0">${t('accounts')}</h2>
+          <button class="chip" id="acc-add">＋</button></div>
+        ${accounts.map((a, i) => `
+          <div class="fin-row acc-row" data-acci="${i}" style="cursor:pointer">
+            <span class="avatar" style="background:${avatarColor(a.name)};width:38px;height:38px;font-size:13px">${a.type === 'business' ? '🍽' : esc(initials(a.name))}</span>
+            <div class="info">
+              <div class="name">${esc(a.name)}</div>
+              <div class="sub">${esc(a.email)}</div>
+            </div>
+            ${i === activeIdx ? `<span class="tag-live">${t('activeAcc')}</span>` : `<button class="chip acc-switch">${t('switchTo')}</button>`}
+          </div>`).join('')}
+      </div>`;
+  }
+  function bindAccountsCard() {
+    document.getElementById('acc-add')?.addEventListener('click', () => {
+      state.addingAccount = true;
+      renderAuth('signup');
+    });
+    document.querySelectorAll('.acc-row').forEach((row) =>
+      row.addEventListener('click', () => {
+        const i = +row.dataset.acci;
+        if (i === (+localStorage.getItem('lalaku_active') || 0)) return;
+        localStorage.setItem('lalaku_active', String(i));
+        location.reload();
+      }));
+  }
+
+  function openAccInfoModal(rerender) {
+    const me = state.me;
+    const tzOpts = TIMEZONES.map(([tz, label]) =>
+      `<option value="${tz}" ${tz === me.timezone ? 'selected' : ''}>${label}</option>`).join('');
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${t('accInfoRow')}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <label>${t('yourName')}</label><input id="p-name" value="${esc(me.name)}">
+      <label>${t('email')}</label><input id="p-email" type="email" value="${esc(me.email)}">
+      <label>${t('phone')}</label><input id="p-phone" type="tel" value="${esc(me.phone || '')}" placeholder="010-1234-5678">
+      <label>${t('changePassword')}</label><input id="p-pw" type="password" autocomplete="new-password">
+      <label>${t('timezone')}</label><select id="p-tz">${tzOpts}</select>
+      <div class="error-text" id="p-error"></div>
+      <button class="btn" id="p-save">${t('save')}</button>
+    `);
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelector('#p-save').addEventListener('click', async () => {
+      const err = modal.querySelector('#p-error');
+      err.textContent = '';
+      try {
+        await api('/api/profile', {
+          method: 'PUT',
+          body: {
+            name: modal.querySelector('#p-name').value,
+            email: modal.querySelector('#p-email').value,
+            phone: modal.querySelector('#p-phone').value,
+            password: modal.querySelector('#p-pw').value || undefined,
+            timezone: modal.querySelector('#p-tz').value,
+          },
+        });
+        state.me = await api('/api/me');
+        upsertAccount(state.me);
+        toast(t('saved'), 'success');
+        closeModal();
+        rerender();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+  }
+
   async function renderProfile() {
     const me = state.me;
     let jobs = [];
     try { jobs = await api('/api/jobs'); } catch {}
-    const tzOpts = TIMEZONES.map(([tz, label]) =>
-      `<option value="${tz}" ${tz === me.timezone ? 'selected' : ''}>${label}</option>`).join('');
-    const tzCustom = TIMEZONES.some(([tz]) => tz === me.timezone) ? '' :
-      `<option value="${esc(me.timezone)}" selected>${esc(me.timezone)}</option>`;
+    const notifOn = localStorage.getItem('lalaku_notif') === '1';
 
     $app.innerHTML = `
       <div class="topbar">${brandHtml('')}${langSelHtml()}</div>
@@ -1194,10 +1462,12 @@
         <div class="ph-name">${esc(me.name)}</div>
         <div class="ph-email">${esc(me.email)}</div>
         <div class="ph-badges">
-          <button class="chip" id="id-copy" title="${t('idNote')}">${t('yourId')}: <b>#${me.id}</b> ⧉</button>
+          <button class="chip" id="id-copy" title="${t('idNote')}">ID <b>#${me.id}</b> ⧉</button>
           <span class="chip ${me.active ? 'gray' : 'red'}">${me.active ? t(me.daysLeft > 7 ? 'paidLeft' : 'trialLeft', me.daysLeft) : t('subExpired')}</span>
         </div>
       </div>
+
+      ${accountsCardHtml()}
 
       <div class="card">
         <div class="modal-head" style="margin-bottom:6px"><h2 style="margin:0">${t('myJobs')}</h2><button class="chip" id="job-add">＋</button></div>
@@ -1214,30 +1484,24 @@
           </div>`).join('') : `<p class="muted">${t('jobsNote')}</p>`}
       </div>
 
-      ${me.memberships.length ? `
       <div class="card">
-        <h2>${t('myTeams')}</h2>
-        ${me.memberships.map((m) => `
-          <div class="fin-row" data-org="${m.orgId}">
-            <div class="info"><div class="name">🍽 ${esc(m.orgName)}</div></div>
-            <button class="chip red team-leave">${t('leaveTeam')}</button>
-          </div>`).join('')}
-      </div>` : ''}
-
-      ${themePickerHtml()}
-
-      <div class="card">
-        <h2>${t('accountInfo')}</h2>
-        <label>${t('yourName')}</label>
-        <input id="p-name" value="${esc(me.name)}">
-        <label>${t('email')}</label>
-        <input id="p-email" type="email" value="${esc(me.email)}">
-        <label>${t('changePassword')}</label>
-        <input id="p-pw" type="password" autocomplete="new-password">
-        <label>${t('timezone')}</label>
-        <select id="p-tz">${tzCustom}${tzOpts}</select>
-        <div class="error-text" id="p-error"></div>
-        <button class="btn" id="p-save">${t('save')}</button>
+        <h2>${t('settingsT')}</h2>
+        <div class="set-row" id="set-accinfo">
+          <span>${t('accInfoRow')}</span><span class="muted">›</span>
+        </div>
+        <div class="set-row">
+          <span>${t('notifRow')}</span>
+          <button class="chip ${notifOn ? '' : 'gray'}" id="notif-toggle">${notifOn ? t('notifOn') : t('notifOff')}</button>
+        </div>
+        <div class="set-row" style="display:block">
+          <div style="margin-bottom:10px">${t('theme').replace('🎨 ', '🎨 ')}</div>
+          <div class="theme-row">
+            ${THEMES.map((th) => `
+              <button class="theme-chip ${th === THEME ? 'active' : ''}" data-theme-pick="${th}">
+                <span class="dot dot-${th}"></span>${t('theme' + th[0].toUpperCase() + th.slice(1))}
+              </button>`).join('')}
+          </div>
+        </div>
       </div>
 
       <div class="card">
@@ -1250,8 +1514,21 @@
     bindLangSel();
     bindPayCard(renderWorker);
     bindThemePicker(renderWorker);
+    bindAccountsCard();
     document.getElementById('id-copy').addEventListener('click', () =>
       navigator.clipboard.writeText('#' + me.id).then(() => toast(t('copied'), 'success')));
+    document.getElementById('set-accinfo').addEventListener('click', () => openAccInfoModal(renderWorker));
+    document.getElementById('notif-toggle').addEventListener('click', async () => {
+      if (localStorage.getItem('lalaku_notif') === '1') {
+        localStorage.setItem('lalaku_notif', '0');
+      } else {
+        if (!('Notification' in window)) return toast(t('notifDenied'), 'error');
+        const p = await Notification.requestPermission();
+        if (p !== 'granted') return toast(t('notifDenied'), 'error');
+        localStorage.setItem('lalaku_notif', '1');
+      }
+      renderWorker();
+    });
     document.getElementById('show-pay')?.addEventListener('click', () => {
       document.getElementById('pay-area').innerHTML = payCardHtml();
       bindPayCard(renderWorker);
@@ -1264,45 +1541,17 @@
         if (!confirm(t('delEntryConfirm'))) return;
         try {
           await api(`/api/jobs/${job.id}`, { method: 'DELETE' });
-          toast(t('deleted'), 'success');
           renderWorker();
         } catch (ex) { toast(terr(ex), 'error'); }
       });
     });
     document.getElementById('logout-btn').addEventListener('click', async () => {
-      await api('/api/logout', { method: 'POST' });
+      try { await api('/api/logout', { method: 'POST' }); } catch {}
+      removeActiveAccount();
       state.me = null;
-      renderAuth();
+      if (getAccounts().length) location.reload();
+      else renderAuth();
     });
-    document.getElementById('p-save').addEventListener('click', async () => {
-      const err = document.getElementById('p-error');
-      err.textContent = '';
-      try {
-        await api('/api/profile', {
-          method: 'PUT',
-          body: {
-            name: document.getElementById('p-name').value,
-            email: document.getElementById('p-email').value,
-            password: document.getElementById('p-pw').value || undefined,
-            timezone: document.getElementById('p-tz').value,
-          },
-        });
-        state.me = await api('/api/me');
-        toast(t('saved'), 'success');
-        renderWorker();
-      } catch (ex) { err.textContent = terr(ex); }
-    });
-    document.querySelectorAll('.team-leave').forEach((b) =>
-      b.addEventListener('click', async () => {
-        const row = b.closest('[data-org]');
-        const m = me.memberships.find((x) => String(x.orgId) === row.dataset.org);
-        if (!confirm(t('leaveTeamConfirm', m.orgName))) return;
-        try {
-          await api(`/api/my/memberships/${m.orgId}`, { method: 'DELETE' });
-          state.me = await api('/api/me');
-          renderWorker();
-        } catch (ex) { toast(terr(ex), 'error'); }
-      }));
   }
 
   // Ish joyi qo'shish/tahrirlash oynasi
@@ -1311,7 +1560,7 @@
     const modal = openModal(`
       <div class="modal-head"><h2 style="margin:0">${job ? esc(job.name) : t('addJob')}</h2><button class="modal-close" id="m-close">✕</button></div>
       <label>${t('jobName')}</label>
-      <input id="j-name" value="${job ? esc(job.name) : ''}" placeholder="${t('jobNamePh')}" ${job?.orgId ? 'disabled' : ''}>
+      <input id="j-name" value="${job ? esc(job.name) : ''}" placeholder="${t('jobNamePh')}">
       <label>${t('payType')}</label>
       <div class="segment" style="margin-bottom:4px">
         <button type="button" data-pt="hourly" class="${payType !== 'daily' ? 'active' : ''}">${t('payHourly')}</button>
@@ -1352,34 +1601,32 @@
   // ================================================================
   //  BIZNES (oshxona)
   // ================================================================
+  function showBizNav(active) {
+    $nav.classList.remove('hidden');
+    const items = [
+      ['board', ICONS.home, t('tabBoard').replace('📊 ', '')],
+      ['calendar', ICONS.calendar, t('navCalendar')],
+      ['team', ICONS.board, t('tabTeam').replace('👥 ', '')],
+      ['profile', ICONS.user, t('navProfile')],
+    ];
+    $nav.innerHTML = items.map(([v, ic, label]) =>
+      `<button data-v="${v}" class="${active === v ? 'active' : ''}">${ic}<span>${label}</span></button>`).join('');
+    $nav.querySelectorAll('button').forEach((b) =>
+      b.addEventListener('click', () => { state.bizTab = b.dataset.v; renderBusiness(); }));
+  }
+
   async function renderBusiness() {
     stopTimers();
-    hideNav();
-    $app.className = 'wide';
+    $app.className = '';
     const me = state.me;
+    showBizNav(state.bizTab === 'qr' ? 'team' : state.bizTab);
     $app.innerHTML = `
-      <div class="topbar">
-        ${brandHtml(me.org?.name || me.name)}
-        <div style="display:flex;gap:8px;align-items:center">
-          ${langSelHtml()}
-          <button class="chip gray" id="logout-btn">${t('logout')}</button>
-        </div>
-      </div>
+      <div class="topbar">${brandHtml(me.org?.name || me.name)}${state.bizTab === 'profile' ? langSelHtml() : ''}</div>
+      ${state.offline ? `<div class="sub-banner warn">${t('offlineTag')}</div>` : ''}
       ${subBannerHtml()}
-      <div class="tabs">
-        ${[['board', 'tabBoard'], ['calendar', 'tabCalendar'], ['team', 'tabTeam'], ['qr', 'tabQr'], ['profile', 'tabProfile']]
-          .map(([k, lk]) => `<button class="tab ${state.bizTab === k ? 'active' : ''}" data-tab="${k}">${t(lk)}</button>`).join('')}
-      </div>
       <div id="tab-content"><div class="loading-screen" style="padding-top:80px"><div class="spinner"></div></div></div>
     `;
     bindLangSel();
-    document.getElementById('logout-btn').addEventListener('click', async () => {
-      await api('/api/logout', { method: 'POST' });
-      state.me = null;
-      renderAuth();
-    });
-    document.querySelectorAll('.tab').forEach((tab) =>
-      tab.addEventListener('click', () => { state.bizTab = tab.dataset.tab; renderBusiness(); }));
 
     const box = document.getElementById('tab-content');
     try {
@@ -1543,6 +1790,7 @@
           <button class="chip red" id="invite-rotate" style="padding:12px 16px">${t('inviteRotate')}</button>
         </div>
       </div>
+      <button class="btn outline" id="go-qr" style="max-width:600px;margin-bottom:14px">${t('tabQr')}</button>
       <div class="card" style="max-width:600px">
         <h2>${t('inviteById')}</h2>
         <p class="muted">${t('inviteByIdNote')}</p>
@@ -1586,6 +1834,7 @@
           </div>`).join('') : `<p class="muted">${t('noMembers')}</p>`}
       </div>
     `;
+    document.getElementById('go-qr').addEventListener('click', () => { state.bizTab = 'qr'; renderBusiness(); });
     document.getElementById('invite-copy').addEventListener('click', () =>
       navigator.clipboard.writeText(inviteUrl).then(() => toast(t('copied'), 'success')));
     document.getElementById('inv-form').addEventListener('submit', async (e) => {
@@ -1620,14 +1869,33 @@
       }));
     box.querySelectorAll('.worker-admin-row').forEach((row) => {
       const m = org.members.find((x) => String(x.id) === row.dataset.id);
-      row.querySelector('.m-rate').addEventListener('click', async () => {
-        const v = prompt(t('memberRatePrompt', m.name), m.hourlyRate || '');
-        if (v === null) return;
-        try {
-          await api(`/api/org/members/${m.id}`, { method: 'PUT', body: { hourlyRate: Number(v) } });
-          toast(t('saved'), 'success');
-          renderBusiness();
-        } catch (ex) { toast(terr(ex), 'error'); }
+      row.querySelector('.m-rate').addEventListener('click', () => {
+        const modal = openModal(`
+          <div class="modal-head"><h2 style="margin:0">${t('memberRateTitle', esc(m.name))}</h2><button class="modal-close" id="m-close">✕</button></div>
+          <label>${t('hourlyRate')}</label>
+          <input id="mr-rate" type="number" min="0" step="any" inputmode="decimal" value="${m.hourlyRate || ''}" placeholder="10030">
+          <label>${t('taxPercent')}</label>
+          <input id="mr-tax" type="number" min="0" max="100" step="any" inputmode="decimal" value="${m.taxPercent || ''}" placeholder="3.3">
+          <div class="error-text" id="mr-error"></div>
+          <button class="btn" id="mr-save">${t('save')}</button>
+        `);
+        modal.querySelector('#m-close').addEventListener('click', closeModal);
+        modal.querySelector('#mr-save').addEventListener('click', async () => {
+          const err = modal.querySelector('#mr-error');
+          err.textContent = '';
+          try {
+            await api(`/api/org/members/${m.id}`, {
+              method: 'PUT',
+              body: {
+                hourlyRate: Number(modal.querySelector('#mr-rate').value || 0),
+                taxPercent: Number(modal.querySelector('#mr-tax').value || 0),
+              },
+            });
+            toast(t('saved'), 'success');
+            closeModal();
+            renderBusiness();
+          } catch (ex) { err.textContent = terr(ex); }
+        });
       });
       row.querySelector('.m-remove').addEventListener('click', async () => {
         if (!confirm(t('removeMemberConfirm', m.name))) return;
@@ -1643,6 +1911,7 @@
   async function bizQrTab(box) {
     const org = await api('/api/org');
     box.innerHTML = `
+      <button class="chip gray" id="qr-back" style="margin-bottom:12px">${t('back')}</button>
       <div class="card" style="max-width:600px">
         <h2>${t('addBranch')}</h2>
         <form id="add-branch-form">
@@ -1680,6 +1949,7 @@
           </div>
         </div>`).join('')}
     `;
+    document.getElementById('qr-back').addEventListener('click', () => { state.bizTab = 'team'; renderBusiness(); });
     document.getElementById('add-branch-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const err = document.getElementById('branch-error');
@@ -1754,6 +2024,7 @@
         <p class="muted">${me.active ? t('paidLeft', me.daysLeft) : t('subExpired')}</p>
         <div id="pay-area">${me.active && !me.pendingPayment ? `<button class="btn outline" id="show-pay" style="margin-top:8px">${t('payTitle')}</button>` : payCardHtml()}</div>
       </div>
+      ${accountsCardHtml()}
       ${themePickerHtml()}
       <div class="card" style="max-width:600px">
         <h2>${t('accountInfo')}</h2>
@@ -1773,9 +2044,19 @@
     `;
     bindPayCard(renderBusiness);
     bindThemePicker(renderBusiness);
+    bindAccountsCard();
     document.getElementById('show-pay')?.addEventListener('click', () => {
       document.getElementById('pay-area').innerHTML = payCardHtml();
       bindPayCard(renderBusiness);
+    });
+    box.insertAdjacentHTML('beforeend',
+      `<button class="btn ghost" id="logout-btn" style="color:var(--red);max-width:600px">${t('logout')}</button>`);
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      try { await api('/api/logout', { method: 'POST' }); } catch {}
+      removeActiveAccount();
+      state.me = null;
+      if (getAccounts().length) location.reload();
+      else renderAuth();
     });
     document.getElementById('p-save').addEventListener('click', async () => {
       const err = document.getElementById('p-error');
@@ -1864,7 +2145,9 @@
       </div>
       <div class="tabs">
         <button class="tab ${state.padTab === 'payments' ? 'active' : ''}" data-tab="payments">${t('padPayments')}</button>
+        <button class="tab ${state.padTab === 'history' ? 'active' : ''}" data-tab="history">${t('padHistory')}</button>
         <button class="tab ${state.padTab === 'users' ? 'active' : ''}" data-tab="users">${t('padUsers')}</button>
+        <button class="tab ${state.padTab === 'prices' ? 'active' : ''}" data-tab="prices">${t('padPrices')}</button>
       </div>
       <div id="tab-content"><div class="loading-screen" style="padding-top:60px"><div class="spinner"></div></div></div>
     `;
@@ -1878,7 +2161,50 @@
 
     const box = document.getElementById('tab-content');
     if (state.padTab === 'payments') await padPaymentsTab(box);
+    else if (state.padTab === 'history') await padHistoryTab(box);
+    else if (state.padTab === 'prices') await padPricesTab(box);
     else await padUsersTab(box);
+  }
+
+  // To'lovlar tarixi (tasdiqlangan/rad etilgan)
+  async function padHistoryTab(box) {
+    const list = await api('/api/admin/payments?status=history');
+    box.innerHTML = `<div style="max-width:600px">${list.length ? list.map((p) => `
+      <div class="card" style="padding:14px 16px">
+        <div class="fin-row" style="border:none;padding:0">
+          <div class="info">
+            <div class="name">${esc(p.name)} <span class="badge-inactive" style="${p.status === 'approved' ? 'background:var(--green-soft);color:var(--green)' : ''}">${p.status === 'approved' ? t('approvedTag') : t('rejectedTag')}</span></div>
+            <div class="sub">${esc(p.email)} · ${new Date(p.decidedAt || p.createdAt).toLocaleString()}</div>
+          </div>
+          <b style="color:var(--accent)">₩${new Intl.NumberFormat().format(p.amount)}</b>
+        </div>
+      </div>`).join('') : `<div class="card"><p class="muted">—</p></div>`}</div>`;
+  }
+
+  // Obuna narxlarini boshqarish
+  async function padPricesTab(box) {
+    const prices = await api('/api/admin/prices');
+    box.innerHTML = `
+      <div class="card" style="max-width:480px">
+        <h2>${t('padPrices')}</h2>
+        <label>${t('priceWorker')}</label>
+        <input id="pr-w" type="number" min="0" value="${prices.worker}">
+        <label>${t('priceBusiness')}</label>
+        <input id="pr-b" type="number" min="0" value="${prices.business}">
+        <div class="error-text" id="pr-error"></div>
+        <button class="btn" id="pr-save">${t('save')}</button>
+      </div>`;
+    document.getElementById('pr-save').addEventListener('click', async () => {
+      const err = document.getElementById('pr-error');
+      err.textContent = '';
+      try {
+        await api('/api/admin/prices', {
+          method: 'PUT',
+          body: { worker: document.getElementById('pr-w').value, business: document.getElementById('pr-b').value },
+        });
+        toast(t('saved'), 'success');
+      } catch (ex) { err.textContent = terr(ex); }
+    });
   }
 
   async function padPaymentsTab(box) {
@@ -1926,6 +2252,7 @@
               <div class="actions">
                 <button class="chip" data-days="30">${t('padAddDays', 30)}</button>
                 <button class="chip" data-days="365">${t('padAddDays', 365)}</button>
+                <button class="chip gray" data-price="1">💲</button>
                 <button class="chip red" data-days="-3660">✕</button>
               </div>
             </div>
@@ -1947,6 +2274,17 @@
           padUsersTab(box);
         } catch (ex) { toast(terr(ex), 'error'); }
       }));
+    box.querySelectorAll('[data-price]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const row = b.closest('[data-id]');
+        const u = users.find((x) => String(x.id) === row.dataset.id);
+        const v = prompt(t('customPricePrompt', u.name), '');
+        if (v === null) return;
+        try {
+          await api(`/api/admin/users/${u.id}/price`, { method: 'PUT', body: { customPrice: v === '' ? null : +v } });
+          toast(t('saved'), 'success');
+        } catch (ex) { toast(terr(ex), 'error'); }
+      }));
   }
 
   // ================================================================
@@ -1963,6 +2301,7 @@
       const me = await api('/api/me');
       if (me.role === 'padmin') return renderPadmin();
       if (me.role === 'user') {
+        upsertAccount(me);
         state.me = me;
         return afterAuth();
       }
