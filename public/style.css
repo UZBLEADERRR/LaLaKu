@@ -556,3 +556,67 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 [data-theme="dark"] .bottom-nav { background: rgba(20, 22, 36, .9); }
 [data-theme="dark"] .worker-item, [data-theme="dark"] .board-row { background: var(--card); }
 [data-theme="dark"] .toast { background: #eceef8; color: #12141f; }
+
+/* ---------- Ixcham bosh panel ---------- */
+.hero-mini {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border-radius: 22px; padding: 20px; color: #fff; margin-bottom: 16px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  box-shadow: var(--shadow);
+}
+.hero-mini.working { background: linear-gradient(135deg, #047857, #0d9488); }
+.hero-mini .hm-label { font-size: 12.5px; font-weight: 700; opacity: .85; }
+.hero-mini .hm-time { font-size: 38px; font-weight: 800; letter-spacing: -1.2px; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.hero-mini .hm-stats { display: flex; flex-direction: column; gap: 8px; text-align: right; }
+.hero-mini .hm-stats b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+.hero-mini .hm-stats span { font-size: 11px; font-weight: 700; opacity: .8; }
+[data-theme="kakao"] .hero-mini { background: #FEE500; color: #3C1E1E; box-shadow: none; }
+[data-theme="kakao"] .hero-mini.working { background: #3C1E1E; color: #FEE500; }
+[data-theme="mint"] .hero-mini { background: linear-gradient(135deg, #047857, #0d9488); }
+[data-theme="mint"] .hero-mini.working { background: linear-gradient(135deg, #1d4ed8, #3b82f6); }
+
+/* ---------- Ish joyi kartalari ---------- */
+.wp-head { display: flex; align-items: center; justify-content: space-between; margin: 4px 4px 12px; }
+.wp-card {
+  display: flex; align-items: center; gap: 13px;
+  background: var(--card); border-radius: 18px; box-shadow: var(--shadow-sm);
+  padding: 14px 16px; margin-bottom: 10px; border: 2px solid transparent;
+  transition: opacity .2s;
+}
+.wp-card.active { border-color: var(--green); }
+.wp-card.dim { opacity: .45; }
+.wp-card .info { flex: 1; min-width: 0; }
+.wp-card .name { font-weight: 800; font-size: 15.5px; }
+.wp-card .sub { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+.wp-btn {
+  padding: 11px 16px; border-radius: 13px; font-weight: 800; font-size: 14px;
+  white-space: nowrap; flex-shrink: 0;
+}
+.wp-btn.start { background: var(--accent); color: #fff; }
+.wp-btn.stop { background: var(--red); color: #fff; }
+[data-theme="kakao"] .wp-card { box-shadow: none; border: 1px solid var(--line); }
+[data-theme="kakao"] .wp-card.active { border: 2px solid var(--green); }
+[data-theme="kakao"] .wp-btn.start { background: #FEE500; color: #3C1E1E; }
+
+.tag-team {
+  font-size: 10.5px; font-weight: 800; color: var(--accent);
+  background: var(--accent-soft); border-radius: 6px; padding: 2px 7px; vertical-align: middle;
+}
+.tag-live {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10.5px; font-weight: 800; color: var(--green);
+  background: var(--green-soft); border-radius: 6px; padding: 2px 7px; margin-left: 4px; vertical-align: middle;
+}
+.tag-live .pulse-dot { width: 6px; height: 6px; }
+
+.invite-card { border: 2px solid var(--accent); }
+
+/* ---------- Profil sarlavhasi ---------- */
+.profile-head { text-align: center; padding: 26px 20px; }
+.profile-head .avatar { margin: 0 auto 12px; display: flex; }
+.profile-head .ph-name { font-size: 20px; font-weight: 800; letter-spacing: -.3px; }
+.profile-head .ph-email { color: var(--muted); font-size: 13.5px; font-weight: 600; margin-top: 2px; }
+.profile-head .ph-badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+
+.btn-row { display: flex; gap: 10px; margin-bottom: 14px; }
+.btn-row .btn { font-size: 14px; padding: 13px 8px; }
