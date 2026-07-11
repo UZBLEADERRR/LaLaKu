@@ -119,6 +119,14 @@ async function initDb() {
       active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS org_invites (
+      id SERIAL PRIMARY KEY,
+      org_id INTEGER NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status TEXT NOT NULL DEFAULT 'pending',     -- pending | accepted | declined
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (org_id, user_id)
+    );
     CREATE TABLE IF NOT EXISTS payments (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -390,6 +398,10 @@ async function meJson(u) {
   const org = u.type === 'business' ? await orgOf(u.id) : null;
   const pending = (await pool.query(
     `SELECT 1 FROM payments WHERE user_id = $1 AND status = 'pending'`, [u.id])).rows[0];
+  const invites = u.type === 'business' ? [] : (await pool.query(
+    `SELECT i.id, i.org_id AS "orgId", o.name AS "orgName"
+     FROM org_invites i JOIN orgs o ON o.id = i.org_id
+     WHERE i.user_id = $1 AND i.status = 'pending'`, [u.id])).rows;
   return {
     role: 'user',
     id: u.id, email: u.email, name: u.name, type: u.type,
@@ -402,6 +414,7 @@ async function meJson(u) {
     pendingPayment: !!pending,
     org: org ? { id: org.id, name: org.name } : null,
     memberships,
+    invites,
   };
 }
 
@@ -495,6 +508,7 @@ app.get('/api/my/status', requireUser, wrap(async (req, res) => {
     sinceDate: open ? localDate(tz, open.check_in) : null,
     sinceIso: open ? open.check_in.toISOString() : null,
     orgName, orgId: open?.org_id || null, orgCheckMode,
+    jobId: open?.job_id || null,
   });
 }));
 
@@ -668,7 +682,7 @@ async function userMonth(userId, tz, year, month, orgOnly = null) {
   let totalMinutes = 0;
   for (const e of r.rows) {
     const d = (days[e.date] ||= { sessions: [], minutes: 0, open: false });
-    d.sessions.push({ id: e.id, jobId: e.job_id, in: localTime(tz, e.check_in), out: e.check_out ? localTime(tz, e.check_out) : null, minutes: e.minutes });
+    d.sessions.push({ id: e.id, jobId: e.job_id, orgId: e.org_id, in: localTime(tz, e.check_in), out: e.check_out ? localTime(tz, e.check_out) : null, minutes: e.minutes });
     d.minutes += e.minutes;
     totalMinutes += e.minutes;
     if (!e.check_out) d.open = true;
@@ -681,6 +695,122 @@ app.get('/api/my/summary', requireUser, wrap(async (req, res) => {
   const { year, month } = parseYearMonth(req, res);
   if (!year) return;
   res.json(await userMonth(req.user.id, req.user.timezone, year, month));
+}));
+
+// ---------- Shaxsiy yozuvlarni tahrirlash (faqat org'siz yozuvlar) ----------
+async function validPersonalJob(userId, jobId) {
+  if (!jobId) return null;
+  const j = (await pool.query(
+    `SELECT id FROM jobs WHERE id = $1 AND user_id = $2 AND org_id IS NULL`,
+    [parseInt(jobId, 10), userId])).rows[0];
+  return j ? j.id : undefined; // undefined = xato
+}
+
+app.post('/api/my/entries', requireUser, wrap(async (req, res) => {
+  const { date, in: inTime, out: outTime, jobId } = req.body || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return fail(res, 400, "Sana noto'g'ri", 'BAD_DATE');
+  if (!TIME_RE.test(String(inTime || ''))) return fail(res, 400, "Vaqt noto'g'ri", 'BAD_TIME');
+  if (outTime && !TIME_RE.test(String(outTime))) return fail(res, 400, "Vaqt noto'g'ri", 'BAD_TIME');
+  const jid = await validPersonalJob(req.user.id, jobId);
+  if (jid === undefined) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  try {
+    await pool.query(
+      `INSERT INTO entries (user_id, job_id, work_date, check_in, check_out)
+       VALUES ($1, $2, $3::date,
+               ($3 || ' ' || $4)::timestamp AT TIME ZONE $6,
+               CASE WHEN $5::text IS NULL THEN NULL
+                    ELSE ($7 || ' ' || $5)::timestamp AT TIME ZONE $6 END)`,
+      [req.user.id, jid, date, inTime, outTime || null, req.user.timezone, outDateFor(date, inTime, outTime)]);
+  } catch (e) {
+    if (e.constraint === 'out_after_in') return fail(res, 400, "Ketish kelishdan keyin bo'lsin", 'OUT_BEFORE_IN');
+    throw e;
+  }
+  res.json({ ok: true });
+}));
+
+app.put('/api/my/entries/:id', requireUser, wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const e = (await pool.query(
+    `SELECT id, work_date::text AS date FROM entries
+     WHERE id = $1 AND user_id = $2 AND org_id IS NULL`, [id, req.user.id])).rows[0];
+  if (!e) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  const { in: inTime, out: outTime, jobId } = req.body || {};
+  if (!TIME_RE.test(String(inTime || ''))) return fail(res, 400, "Vaqt noto'g'ri", 'BAD_TIME');
+  if (outTime && !TIME_RE.test(String(outTime))) return fail(res, 400, "Vaqt noto'g'ri", 'BAD_TIME');
+  const jid = await validPersonalJob(req.user.id, jobId);
+  if (jid === undefined) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  try {
+    await pool.query(
+      `UPDATE entries SET job_id = $6,
+         check_in = ($2 || ' ' || $3)::timestamp AT TIME ZONE $5,
+         check_out = CASE WHEN $4::text IS NULL THEN NULL
+                          ELSE ($7 || ' ' || $4)::timestamp AT TIME ZONE $5 END
+       WHERE id = $1`,
+      [id, e.date, inTime, outTime || null, req.user.timezone, jid, outDateFor(e.date, inTime, outTime)]);
+  } catch (err) {
+    if (err.constraint === 'out_after_in') return fail(res, 400, "Ketish kelishdan keyin bo'lsin", 'OUT_BEFORE_IN');
+    throw err;
+  }
+  res.json({ ok: true });
+}));
+
+app.delete('/api/my/entries/:id', requireUser, wrap(async (req, res) => {
+  await pool.query(`DELETE FROM entries WHERE id = $1 AND user_id = $2 AND org_id IS NULL`,
+    [parseInt(req.params.id, 10), req.user.id]);
+  res.json({ ok: true });
+}));
+
+// ---------- ID orqali taklif ----------
+// Oshxona ishchining ID raqami (yoki emaili) bilan taklif yuboradi,
+// ishchi qabul qilsa jamoaga avtomatik qo'shiladi.
+app.post('/api/org/invites', requireUser, requireBusiness, wrap(async (req, res) => {
+  const org = await orgOf(req.user.id);
+  const q = String((req.body || {}).query || '').trim();
+  if (!q) return fail(res, 400, 'ID yoki email kiriting', 'NAME_REQUIRED');
+  const target = q.includes('@')
+    ? (await pool.query(`SELECT id, type FROM users WHERE email = $1`, [q.toLowerCase()])).rows[0]
+    : (await pool.query(`SELECT id, type FROM users WHERE id = $1`, [parseInt(q.replace('#', ''), 10) || 0])).rows[0];
+  if (!target) return fail(res, 404, 'Foydalanuvchi topilmadi', 'USER_NOT_FOUND');
+  if (target.type === 'business') return fail(res, 400, "Biznes akkaunt jamoaga qo'shila olmaydi", 'BUSINESS_CANT_JOIN');
+  const member = (await pool.query(
+    `SELECT 1 FROM memberships WHERE user_id = $1 AND org_id = $2`, [target.id, org.id])).rows[0];
+  if (member) return fail(res, 400, "Bu ishchi allaqachon jamoada", 'ALREADY_MEMBER');
+  await pool.query(
+    `INSERT INTO org_invites (org_id, user_id, status) VALUES ($1, $2, 'pending')
+     ON CONFLICT (org_id, user_id) DO UPDATE SET status = 'pending', created_at = now()`,
+    [org.id, target.id]);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/org/invites/:id', requireUser, requireBusiness, wrap(async (req, res) => {
+  const org = await orgOf(req.user.id);
+  await pool.query(`DELETE FROM org_invites WHERE id = $1 AND org_id = $2`,
+    [parseInt(req.params.id, 10), org.id]);
+  res.json({ ok: true });
+}));
+
+// Ishchi taklifni qabul qiladi / rad etadi
+app.post('/api/invites/:id/accept', requireUser, wrap(async (req, res) => {
+  const inv = (await pool.query(
+    `UPDATE org_invites SET status = 'accepted' WHERE id = $1 AND user_id = $2 AND status = 'pending'
+     RETURNING org_id`, [parseInt(req.params.id, 10), req.user.id])).rows[0];
+  if (!inv) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  const org = (await pool.query(`SELECT id, name FROM orgs WHERE id = $1`, [inv.org_id])).rows[0];
+  await pool.query(
+    `INSERT INTO memberships (user_id, org_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [req.user.id, org.id]);
+  await pool.query(
+    `INSERT INTO jobs (user_id, org_id, name)
+     SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE user_id = $1 AND org_id = $2)`,
+    [req.user.id, org.id, org.name]);
+  res.json({ ok: true, orgName: org.name });
+}));
+
+app.post('/api/invites/:id/decline', requireUser, wrap(async (req, res) => {
+  await pool.query(
+    `UPDATE org_invites SET status = 'declined' WHERE id = $1 AND user_id = $2 AND status = 'pending'`,
+    [parseInt(req.params.id, 10), req.user.id]);
+  res.json({ ok: true });
 }));
 
 // ================= MOLIYA =================
@@ -749,11 +879,14 @@ app.get('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
     `SELECT u.id, u.name, u.email, m.joined_at AS "joinedAt", m.hourly_rate::float AS "hourlyRate"
      FROM memberships m JOIN users u ON u.id = m.user_id
      WHERE m.org_id = $1 ORDER BY u.name`, [org.id])).rows;
+  const pendingInvites = (await pool.query(
+    `SELECT i.id, u.name, u.email FROM org_invites i JOIN users u ON u.id = i.user_id
+     WHERE i.org_id = $1 AND i.status = 'pending' ORDER BY i.created_at DESC`, [org.id])).rows;
   res.json({
     id: org.id, name: org.name,
     inviteToken: org.invite_token,
     checkMode: org.check_mode,
-    branches, members,
+    branches, members, pendingInvites,
   });
 }));
 

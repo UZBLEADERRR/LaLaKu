@@ -503,10 +503,11 @@
     const year = now.getFullYear(), month = now.getMonth() + 1;
     let status, summary, jobs;
     try {
-      [status, summary, jobs] = await Promise.all([
+      [status, summary, jobs, state.me] = await Promise.all([
         api('/api/my/status'),
         api(`/api/my/summary?year=${year}&month=${month}`),
         api('/api/jobs'),
+        api('/api/me'),
       ]);
     } catch (ex) {
       if (ex.code === 'AUTH') return renderAuth();
@@ -517,87 +518,108 @@
 
     const me = state.me;
     const today = todayStr();
-    const todayData = summary.days[today];
-    const todayMin = todayData ? todayData.minutes : 0;
+    const todayMin = summary.days[today] ? summary.days[today].minutes : 0;
     const e = computeEarnings(summary, jobs);
 
-    const personalJobs = jobs.filter((j) => !j.orgId && j.active);
-    const savedJob = +(localStorage.getItem('lalaku_job') || 0);
-    state.punchJob = personalJobs.some((j) => j.id === savedJob) ? savedJob : (personalJobs[0]?.id || null);
-
-    const qrTeams = me.memberships.filter((m) => m.checkMode !== 'button');
-    const btnTeams = me.memberships.filter((m) => m.checkMode === 'button');
-
-    let actionHtml;
-    if (!me.active) {
-      actionHtml = payCardHtml();
-    } else if (status.checkedIn) {
-      // Tugatish: QR-rejimli jamoada skanerlash, aks holda oddiy tugma
-      actionHtml = (status.orgId && status.orgCheckMode === 'qr')
-        ? `<button class="scan-btn leave" id="scan-btn">${ICONS.scan} ${t('checkoutBtn')}</button>`
-        : `<button class="scan-btn leave" id="punch-btn">${t('punchOut')}</button>`;
-    } else {
-      const bits = [];
-      if (qrTeams.length) {
-        bits.push(`<button class="scan-btn arrive" id="scan-btn">${ICONS.scan} ${t('checkinBtn')}</button>`);
+    // Har bir ish joyining bu oydagi soatlari
+    const perJobMin = {};
+    for (const d of Object.values(summary.days)) {
+      for (const sess of d.sessions) {
+        const k = sess.jobId || 0;
+        perJobMin[k] = (perJobMin[k] || 0) + sess.minutes;
       }
-      for (const bt of btnTeams) {
-        bits.push(`<button class="scan-btn arrive" data-orgpunch="${bt.orgId}">${t('startTeam', esc(bt.orgName))}</button>`);
-      }
-      const jobChips = personalJobs.length > 1 ? `
-        <div class="branch-chips" id="job-chips">
-          ${personalJobs.map((j) => `<button class="branch-chip ${state.punchJob === j.id ? 'active' : ''}" data-job="${j.id}">${esc(j.name)}</button>`).join('')}
-        </div>` : '';
-      const personalLabel = personalJobs.length === 1 ? `${t('punchIn')} · ${esc(personalJobs[0].name)}` : t('punchIn');
-      bits.push(jobChips + (me.memberships.length
-        ? `<button class="btn ghost" id="punch-btn" style="margin-top:-4px;margin-bottom:12px;font-size:13.5px">${personalLabel}</button>`
-        : `<button class="scan-btn arrive" id="punch-btn">${personalLabel}</button>`));
-      actionHtml = bits.join('');
     }
 
+    const personalJobs = jobs.filter((j) => !j.orgId && j.active);
+    const memberOrgIds = new Set(me.memberships.map((m) => m.orgId));
+
+    // Taklif kartalari
+    const invitesHtml = (me.invites || []).map((inv) => `
+      <div class="card invite-card" data-invite="${inv.id}">
+        <b>${t('invitedYou', esc(inv.orgName))}</b>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn inv-accept" style="padding:11px;font-size:14px">${t('accept')}</button>
+          <button class="btn ghost inv-decline" style="padding:11px;font-size:14px">${t('decline')}</button>
+        </div>
+      </div>`).join('');
+
+    // Ish joyi kartasi
+    const activeJobId = status.checkedIn ? (status.jobId || 0) : null;
+    const cardFor = (kind, obj) => {
+      // kind: 'job' (shaxsiy) | 'team'
+      const isTeam = kind === 'team';
+      const name = isTeam ? obj.orgName : obj.name;
+      const teamJob = isTeam ? jobs.find((j) => j.orgId === obj.orgId) : null;
+      const jid = isTeam ? (teamJob?.id || -1) : obj.id;
+      const mins = perJobMin[jid] || 0;
+      const isActive = status.checkedIn && (isTeam ? status.orgId === obj.orgId : activeJobId === obj.id);
+      const otherActive = status.checkedIn && !isActive;
+      let action = '';
+      if (!me.active) {
+        action = '';
+      } else if (isActive) {
+        action = (isTeam && status.orgCheckMode === 'qr')
+          ? `<button class="wp-btn stop" data-scan="1">${t('scanQrBtn')}</button>`
+          : `<button class="wp-btn stop" data-stop="1">${t('stopBtn')}</button>`;
+      } else if (!otherActive) {
+        action = isTeam
+          ? (obj.checkMode === 'qr'
+            ? `<button class="wp-btn start" data-scan="1">${t('scanQrBtn')}</button>`
+            : `<button class="wp-btn start" data-orgstart="${obj.orgId}">${t('startBtn')}</button>`)
+          : `<button class="wp-btn start" data-jobstart="${obj.id}">${t('startBtn')}</button>`;
+      }
+      const rate = isTeam ? teamJob : obj;
+      const rateTxt = rate && rate.rate > 0
+        ? `${fmtMoney(rate.rate)}/${rate.payType === 'daily' ? t('dUnit') : t('hUnit')}` : '';
+      return `
+      <div class="wp-card ${isActive ? 'active' : ''} ${otherActive ? 'dim' : ''}">
+        <span class="avatar" style="background:${avatarColor(name)}">${isTeam ? '🍽' : esc(initials(name))}</span>
+        <div class="info">
+          <div class="name">${esc(name)}${isTeam ? ` <span class="tag-team">${t('teamTag')}</span>` : ''}
+            ${isActive ? `<span class="tag-live"><span class="pulse-dot"></span>${t('activeTag')}</span>` : ''}</div>
+          <div class="sub">${fmtH(mins)} ${t('hUnit')}${rateTxt ? ` · ${rateTxt}` : ''}</div>
+        </div>
+        ${action}
+      </div>`;
+    };
+
+    const wpCards =
+      me.memberships.map((m) => cardFor('team', m)).join('') +
+      personalJobs.map((j) => cardFor('job', j)).join('');
+
     $app.innerHTML = `
-      <div class="topbar">
-        ${brandHtml(me.name)}
-        <div style="display:flex;gap:8px;align-items:center">${langSelHtml()}</div>
-      </div>
+      <div class="topbar">${brandHtml(me.name)}</div>
       ${subBannerHtml()}
+      ${invitesHtml}
 
-      <div class="hero ${status.checkedIn ? 'working' : ''}">
-        <span class="badge">${status.checkedIn ? `<span class="pulse-dot"></span> ${t('atWork')}` : t('offWork')}</span>
-        <div class="big" id="status-time">${status.checkedIn ? '' : fmtH(todayMin)}</div>
-        <div class="sub">${status.checkedIn
-          ? `${t('arrivedAt', status.since)}${status.orgName ? ` · ${esc(status.orgName)}` : ''}`
-          : (todayMin > 0 ? t('restMsg') : t('scanPrompt'))}</div>
+      <div class="hero-mini ${status.checkedIn ? 'working' : ''}">
+        <div>
+          <div class="hm-label">${status.checkedIn
+            ? `${t('atWork')}${status.orgName ? ` · ${esc(status.orgName)}` : ''} · ${status.since}`
+            : t('offWork').replace('🌙 ', '')}</div>
+          <div class="hm-time" id="status-time">${status.checkedIn ? '' : fmtH(todayMin)}</div>
+        </div>
+        <div class="hm-stats">
+          <div><b>${fmtH(summary.totalMinutes)}</b><span>${t('monthTotal', MONTHS()[month - 1])}</span></div>
+          ${e.hasRate ? `<div><b>${fmtMoney(e.net)}</b><span>${t('monthNet')}</span></div>` : ''}
+        </div>
       </div>
 
-      ${actionHtml}
+      ${!me.active ? payCardHtml() : ''}
 
-      <div class="stat-row">
-        <div class="stat"><div class="value">${fmtH(todayMin)}</div><div class="label">${t('workedToday')}</div></div>
-        <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthTotal', MONTHS()[month - 1])}</div></div>
+      <div class="wp-head">
+        <h2 style="margin:0">${t('myWorkplaces')}</h2>
+        <button class="chip" id="job-add">＋</button>
       </div>
-
-      ${salaryCardHtml(e)}
-      <button class="btn outline" id="forecast-btn" style="margin-bottom:14px">${t('forecastBtn')}</button>
-
-      ${todayData ? `
-      <div class="card">
-        <h2>${t('todaySessions')}</h2>
-        ${todayData.sessions.map((sess) => `
-          <div class="session-row">
-            <span class="times">${sess.in} → ${sess.out || `<span style="color:var(--green)">${t('working')}</span>`}</span>
-            <span class="dur">${fmtH(sess.minutes)} ${t('hUnit')}</span>
-          </div>`).join('')}
-      </div>` : ''}
+      ${wpCards || `<div class="card"><p class="muted">${t('noWorkplaces')}</p></div>`}
     `;
-    bindLangSel();
-    bindSalaryCard(renderWorker);
     bindPayCard(renderWorker);
-    document.getElementById('forecast-btn').addEventListener('click', () => { state.view = 'forecast'; renderWorker(); });
+    document.getElementById('job-add').addEventListener('click', () => openJobModal(null));
 
     if (status.checkedIn && status.sinceIso) {
       const started = new Date(status.sinceIso);
-      const closedBefore = todayData ? todayData.sessions.filter((x) => x.out).reduce((a, x) => a + x.minutes, 0) : 0;
+      const closedBefore = summary.days[today]
+        ? summary.days[today].sessions.filter((x) => x.out).reduce((a, x) => a + x.minutes, 0) : 0;
       const upd = () => {
         const mins = Math.max(0, Math.floor((Date.now() - started) / 60_000));
         const el = document.getElementById('status-time');
@@ -607,38 +629,47 @@
       state.timerId = setInterval(upd, 15_000);
     }
 
-    document.querySelectorAll('#job-chips .branch-chip').forEach((c) =>
-      c.addEventListener('click', () => {
-        state.punchJob = +c.dataset.job;
-        localStorage.setItem('lalaku_job', state.punchJob);
-        document.querySelectorAll('#job-chips .branch-chip').forEach((x) => x.classList.toggle('active', x === c));
-      }));
-
     const doAction = async (fn) => {
       try {
         const r = await fn();
-        toast(r.action === 'in' ? t('scanInOk', r.time) : t('scanOutOk', r.time), 'success', 4500);
+        toast(r.action === 'in' ? t('scanInOk', r.time) : t('scanOutOk', r.time), 'success', 4000);
         renderWorker();
       } catch (ex) { toast(terr(ex), 'error', 4500); }
     };
-
-    document.getElementById('scan-btn')?.addEventListener('click', async () => {
-      const loc = await getLoc();
-      scanner.open((code) => doAction(() => api('/api/scan', { method: 'POST', body: { code, ...loc } })));
-    });
-
-    document.querySelectorAll('[data-orgpunch]').forEach((b) =>
+    document.querySelectorAll('[data-scan]').forEach((b) =>
       b.addEventListener('click', async () => {
         const loc = await getLoc();
-        doAction(() => api('/api/punch', { method: 'POST', body: { orgId: +b.dataset.orgpunch, ...loc } }));
+        scanner.open((code) => doAction(() => api('/api/scan', { method: 'POST', body: { code, ...loc } })));
+      }));
+    document.querySelectorAll('[data-orgstart]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const loc = await getLoc();
+        doAction(() => api('/api/punch', { method: 'POST', body: { orgId: +b.dataset.orgstart, ...loc } }));
+      }));
+    document.querySelectorAll('[data-jobstart]').forEach((b) =>
+      b.addEventListener('click', () =>
+        doAction(() => api('/api/punch', { method: 'POST', body: { jobId: +b.dataset.jobstart } }))));
+    document.querySelectorAll('[data-stop]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const loc = status.orgId ? await getLoc() : {};
+        doAction(() => api('/api/punch', { method: 'POST', body: { ...loc } }));
       }));
 
-    document.getElementById('punch-btn')?.addEventListener('click', async () => {
-      // Jamoa yozuvini yopishda joylashuv kerak bo'lishi mumkin
-      const needLoc = status.checkedIn && status.orgId;
-      const loc = needLoc ? await getLoc() : {};
-      const body = status.checkedIn ? { ...loc } : { jobId: state.punchJob, ...loc };
-      doAction(() => api('/api/punch', { method: 'POST', body }));
+    document.querySelectorAll('.invite-card').forEach((card) => {
+      const id = card.dataset.invite;
+      card.querySelector('.inv-accept').addEventListener('click', async () => {
+        try {
+          const r = await api(`/api/invites/${id}/accept`, { method: 'POST' });
+          toast(t('joined', r.orgName), 'success', 5000);
+          renderWorker();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
+      card.querySelector('.inv-decline').addEventListener('click', async () => {
+        try {
+          await api(`/api/invites/${id}/decline`, { method: 'POST' });
+          renderWorker();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
     });
   }
 
@@ -731,7 +762,6 @@
     }
     if (!jobs.some((j) => j.id === state.calJob)) state.calJob = 0;
     const summary = filterSummary(fullSummary, state.calJob);
-    const e = computeEarnings(summary, jobs);
     const jobChips = jobs.length ? `
       <div class="branch-chips">
         <button class="branch-chip ${!state.calJob ? 'active' : ''}" data-caljob="0">${t('all')}</button>
@@ -739,7 +769,9 @@
       </div>` : '';
 
     $app.innerHTML = `
-      <div class="topbar">${brandHtml(state.me.name)}${langSelHtml()}</div>
+      <div class="topbar">${brandHtml(state.me.name)}
+        <button class="chip gray" id="copy-report">${t('copy')}</button>
+      </div>
       ${jobChips}
       <div class="stat-row">
         <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthHours', MONTHS()[month - 1])}</div></div>
@@ -747,25 +779,25 @@
       </div>
       <div class="card">
         ${calendarHtml(summary, year, month)}
-        <div class="day-detail ${state.selectedDay ? '' : 'hidden'}" id="day-detail">
-          ${state.selectedDay ? dayDetailHtml(summary, state.selectedDay) : ''}
-        </div>
+        <div class="day-detail ${state.selectedDay ? '' : 'hidden'}" id="day-detail"></div>
       </div>
-      <button class="btn outline" id="copy-report" style="margin-bottom:14px">${t('copyReport')}</button>
-      ${salaryCardHtml(e)}
     `;
-    bindLangSel();
-    bindSalaryCard(renderWorker);
     bindCalendarNav(renderWorker);
     document.querySelectorAll('[data-caljob]').forEach((c) =>
       c.addEventListener('click', () => { state.calJob = +c.dataset.caljob; renderWorker(); }));
+
+    const showDetail = () => {
+      const det = document.getElementById('day-detail');
+      if (!state.selectedDay) { det.classList.add('hidden'); return; }
+      det.innerHTML = dayDetailHtml(summary, state.selectedDay);
+      det.classList.remove('hidden');
+      bindDayDetail(det, summary, jobs, state.selectedDay);
+    };
+    showDetail();
+
     bindCalendarCells((date) => {
       state.selectedDay = state.selectedDay === date ? null : date;
-      const det = document.getElementById('day-detail');
-      if (state.selectedDay) {
-        det.innerHTML = dayDetailHtml(summary, state.selectedDay);
-        det.classList.remove('hidden');
-      } else det.classList.add('hidden');
+      showDetail();
       document.querySelectorAll('.cal-cell').forEach((c) => c.classList.toggle('selected', c.dataset.date === state.selectedDay));
     });
 
@@ -775,13 +807,73 @@
       const dates = Object.keys(summary.days).sort();
       for (const d of dates) {
         const dd = summary.days[d];
-        const sess = dd.sessions.map((s) => `${s.in}→${s.out || '...'}`).join(', ');
+        const sess = dd.sessions.map((x) => `${x.in}→${x.out || '...'}`).join(', ');
         lines.push(`${+d.split('-')[2]}: ${sess} (${fmtH(dd.minutes)})`);
       }
       lines.push(`${t('reportTotal')}: ${fmtH(summary.totalMinutes)} (${summary.daysWorked} ${t('dUnit')})`);
       navigator.clipboard.writeText(lines.join('\n'))
         .then(() => toast(t('copied'), 'success'))
         .catch(() => toast(t('genericError'), 'error'));
+    });
+  }
+
+  // Kun tafsilotidagi shaxsiy yozuvlarni tahrirlash
+  function bindDayDetail(det, summary, jobs, date) {
+    const dd = summary.days[date];
+    det.querySelectorAll('.s-edit').forEach((b) =>
+      b.addEventListener('click', () => {
+        const sess = dd.sessions.find((x) => String(x.id) === b.closest('[data-sess]').dataset.sess);
+        openMyEntryModal(date, sess, jobs);
+      }));
+    det.querySelector('#day-add')?.addEventListener('click', () => openMyEntryModal(date, null, jobs));
+  }
+
+  function openMyEntryModal(date, sess, jobs) {
+    const personalJobs = jobs.filter((j) => !j.orgId);
+    const jobSel = personalJobs.length ? `
+      <label>${t('jobName')}</label>
+      <select id="me-job">
+        <option value="">${t('personal')}</option>
+        ${personalJobs.map((j) => `<option value="${j.id}" ${sess && sess.jobId === j.id ? 'selected' : ''}>${esc(j.name)}</option>`).join('')}
+      </select>` : '';
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${dayTitle(date)}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <div class="entry-edit-row" style="margin-top:4px">
+        <input type="time" id="me-in" value="${sess ? sess.in : ''}">
+        <span>→</span>
+        <input type="time" id="me-out" value="${sess?.out || ''}">
+      </div>
+      ${jobSel}
+      <div class="error-text" id="me-error"></div>
+      <button class="btn" id="me-save">${t('save')}</button>
+      ${sess ? `<button class="btn ghost" id="me-del" style="color:var(--red);margin-top:6px">🗑</button>` : ''}
+    `);
+    const err = modal.querySelector('#me-error');
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelector('#me-save').addEventListener('click', async () => {
+      err.textContent = '';
+      try {
+        const body = {
+          date,
+          in: modal.querySelector('#me-in').value,
+          out: modal.querySelector('#me-out').value || null,
+          jobId: modal.querySelector('#me-job')?.value || null,
+        };
+        if (sess) await api(`/api/my/entries/${sess.id}`, { method: 'PUT', body });
+        else await api('/api/my/entries', { method: 'POST', body });
+        toast(t('saved'), 'success');
+        closeModal();
+        renderWorker();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+    modal.querySelector('#me-del')?.addEventListener('click', async () => {
+      if (!confirm(t('delEntryConfirm'))) return;
+      try {
+        await api(`/api/my/entries/${sess.id}`, { method: 'DELETE' });
+        toast(t('deleted'), 'success');
+        closeModal();
+        renderWorker();
+      } catch (ex) { err.textContent = terr(ex); }
     });
   }
 
@@ -814,14 +906,22 @@
   }
 
   function dayDetailHtml(summary, date) {
-    const dd = summary.days[date];
-    if (!dd) return `<b>${dayTitle(date)}</b><p class="muted" style="margin-top:6px">${t('noRecords')}</p>`;
-    return `<b>${dayTitle(date)}</b> — ${t('total')} <b style="color:var(--green)">${fmtH(dd.minutes)}</b> ${t('hUnit')}${dd.open ? ` <span style="color:var(--amber)">(${t('ongoing')})</span>` : ''}
-      ${dd.sessions.map((s) => `
-        <div class="session-row">
-          <span class="times">${s.in} → ${s.out || `<span style="color:var(--green)">${t('working')}</span>`}</span>
-          <span class="dur">${fmtH(s.minutes)} ${t('hUnit')}</span>
-        </div>`).join('')}`;
+    const dd = summary.days[date] || { sessions: [], minutes: 0, open: false };
+    const header = `<div class="modal-head" style="margin-bottom:4px">
+      <b>${dayTitle(date)} — <span style="color:var(--green)">${fmtH(dd.minutes)}</span> ${t('hUnit')}${dd.open ? ` <span style="color:var(--amber)">(${t('ongoing')})</span>` : ''}</b>
+      <button class="chip" id="day-add">＋</button>
+    </div>`;
+    if (!dd.sessions.length) return header + `<p class="muted">${t('noRecords')}</p>`;
+    const hasOrg = dd.sessions.some((x) => x.orgId);
+    return header + dd.sessions.map((x) => `
+      <div class="session-row" data-sess="${x.id}">
+        <span class="times">${x.in} → ${x.out || `<span style="color:var(--green)">${t('working')}</span>`}</span>
+        <span style="display:flex;align-items:center;gap:8px">
+          <span class="dur">${fmtH(x.minutes)} ${t('hUnit')}</span>
+          ${x.orgId ? '<span title="🔒">🔒</span>' : '<button class="chip gray s-edit" style="padding:5px 9px">✏️</button>'}
+        </span>
+      </div>`).join('') +
+      (hasOrg ? `<p class="muted" style="margin-top:8px;font-size:12.5px">${t('teamLocked')}</p>` : '');
   }
 
   function bindCalendarNav(rerender) {
@@ -908,7 +1008,7 @@
     };
 
     $app.innerHTML = `
-      <div class="topbar">${brandHtml(state.me.name)}${langSelHtml()}</div>
+      <div class="topbar">${brandHtml(state.me.name)}</div>
 
       <div class="card remain-card">
         <h2>${t('remaining')}</h2>
@@ -917,6 +1017,11 @@
         ${expenses ? `<div class="sal-row"><span class="muted">${t('monthExpenses')}</span><b style="color:var(--red)">−${fmtMoney(expenses)}</b></div>` : ''}
         ${debtsMonth ? `<div class="sal-row"><span class="muted">${t('monthDebts')}</span><b style="color:var(--red)">−${fmtMoney(debtsMonth)}</b></div>` : ''}
         <div class="sal-row net"><span>${t('leftOver')}</span><b style="color:${leftOver >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtMoney(leftOver)}</b></div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn outline" id="salary-gear">⚙️ ${t('paySettings')}</button>
+        <button class="btn outline" id="forecast-btn">${t('forecastBtn').replace(/🔮 .*/, '🔮')} ${t('forecast').replace('🔮 ', '')}</button>
       </div>
 
       <div class="card">
@@ -937,7 +1042,8 @@
       ${kindSection('debt', 'kindDebtPl')}
       ${kindSection('income', 'kindIncomePl')}
     `;
-    bindLangSel();
+    bindSalaryCard(renderWorker);
+    document.getElementById('forecast-btn').addEventListener('click', () => { state.view = 'forecast'; renderWorker(); });
 
     document.querySelectorAll('[data-add]').forEach((b) =>
       b.addEventListener('click', () => openFinanceModal(b.dataset.add)));
@@ -1075,44 +1181,49 @@
     const me = state.me;
     let jobs = [];
     try { jobs = await api('/api/jobs'); } catch {}
-    const jobsCard = `
-      <div class="card">
-        <div class="modal-head" style="margin-bottom:6px"><h2 style="margin:0">${t('myJobs')}</h2><button class="chip" id="job-add">${t('addJob')}</button></div>
-        <p class="muted" style="margin-bottom:6px;font-size:13px">${t('jobsNote')}</p>
-        ${jobs.map((j) => `
-          <div class="fin-row" data-job-row="${j.id}">
-            <div class="info">
-              <div class="name">${esc(j.name)}${j.orgId ? ` <span class="badge-inactive" style="background:var(--accent-soft);color:var(--accent)">${t('teamTag')}</span>` : ''}</div>
-              <div class="sub">${j.payType === 'daily' ? t('payDaily') : t('payHourly')} · ${fmtMoney(j.rate)}${j.taxPercent ? ` · −${j.taxPercent}%` : ''}</div>
-            </div>
-            <div class="actions">
-              <button class="chip j-edit">✏️</button>
-              ${j.orgId ? '' : '<button class="chip red j-del">🗑</button>'}
-            </div>
-          </div>`).join('')}
-      </div>`;
     const tzOpts = TIMEZONES.map(([tz, label]) =>
       `<option value="${tz}" ${tz === me.timezone ? 'selected' : ''}>${label}</option>`).join('');
     const tzCustom = TIMEZONES.some(([tz]) => tz === me.timezone) ? '' :
       `<option value="${esc(me.timezone)}" selected>${esc(me.timezone)}</option>`;
 
     $app.innerHTML = `
-      <div class="topbar">
-        ${brandHtml(t('profile'))}
-        <div style="display:flex;gap:8px;align-items:center">
-          ${langSelHtml()}
-          <button class="chip gray" id="logout-btn">${t('logout')}</button>
+      <div class="topbar">${brandHtml('')}${langSelHtml()}</div>
+
+      <div class="card profile-head">
+        <span class="avatar" style="background:${avatarColor(me.name)};width:64px;height:64px;font-size:23px;border-radius:22px">${esc(initials(me.name))}</span>
+        <div class="ph-name">${esc(me.name)}</div>
+        <div class="ph-email">${esc(me.email)}</div>
+        <div class="ph-badges">
+          <button class="chip" id="id-copy" title="${t('idNote')}">${t('yourId')}: <b>#${me.id}</b> ⧉</button>
+          <span class="chip ${me.active ? 'gray' : 'red'}">${me.active ? t(me.daysLeft > 7 ? 'paidLeft' : 'trialLeft', me.daysLeft) : t('subExpired')}</span>
         </div>
       </div>
-      ${subBannerHtml()}
 
       <div class="card">
-        <h2>${t('subscription')}</h2>
-        <p class="muted">${me.active ? t(me.daysLeft > 7 ? 'paidLeft' : 'trialLeft', me.daysLeft) : t('subExpired')}</p>
-        <div id="pay-area">${me.active && !me.pendingPayment ? `<button class="btn outline" id="show-pay" style="margin-top:8px">${t('payTitle')}</button>` : payCardHtml()}</div>
+        <div class="modal-head" style="margin-bottom:6px"><h2 style="margin:0">${t('myJobs')}</h2><button class="chip" id="job-add">＋</button></div>
+        ${jobs.length ? jobs.map((j) => `
+          <div class="fin-row" data-job-row="${j.id}">
+            <div class="info">
+              <div class="name">${esc(j.name)}${j.orgId ? ` <span class="tag-team">${t('teamTag')}</span>` : ''}</div>
+              <div class="sub">${j.payType === 'daily' ? t('payDaily') : t('payHourly')} · ${fmtMoney(j.rate)}${j.taxPercent ? ` · −${j.taxPercent}%` : ''}</div>
+            </div>
+            <div class="actions">
+              <button class="chip gray j-edit">✏️</button>
+              ${j.orgId ? '' : '<button class="chip red j-del">🗑</button>'}
+            </div>
+          </div>`).join('') : `<p class="muted">${t('jobsNote')}</p>`}
       </div>
 
-      ${jobsCard}
+      ${me.memberships.length ? `
+      <div class="card">
+        <h2>${t('myTeams')}</h2>
+        ${me.memberships.map((m) => `
+          <div class="fin-row" data-org="${m.orgId}">
+            <div class="info"><div class="name">🍽 ${esc(m.orgName)}</div></div>
+            <button class="chip red team-leave">${t('leaveTeam')}</button>
+          </div>`).join('')}
+      </div>` : ''}
+
       ${themePickerHtml()}
 
       <div class="card">
@@ -1125,23 +1236,22 @@
         <input id="p-pw" type="password" autocomplete="new-password">
         <label>${t('timezone')}</label>
         <select id="p-tz">${tzCustom}${tzOpts}</select>
-        <p class="muted" style="margin-top:8px;font-size:13px">${t('tzNote')}</p>
         <div class="error-text" id="p-error"></div>
         <button class="btn" id="p-save">${t('save')}</button>
       </div>
 
       <div class="card">
-        <h2>${t('myTeams')}</h2>
-        ${me.memberships.length ? me.memberships.map((m) => `
-          <div class="fin-row" data-org="${m.orgId}">
-            <div class="info"><div class="name">🍽 ${esc(m.orgName)}</div></div>
-            <button class="chip red team-leave">${t('leaveTeam')}</button>
-          </div>`).join('') : `<p class="muted">${t('noTeams')}</p>`}
+        <h2>${t('subscription')}</h2>
+        <div id="pay-area">${me.active && !me.pendingPayment ? `<button class="btn outline" id="show-pay">${t('payTitle')}</button>` : payCardHtml()}</div>
       </div>
+
+      <button class="btn ghost" id="logout-btn" style="color:var(--red)">${t('logout')}</button>
     `;
     bindLangSel();
     bindPayCard(renderWorker);
     bindThemePicker(renderWorker);
+    document.getElementById('id-copy').addEventListener('click', () =>
+      navigator.clipboard.writeText('#' + me.id).then(() => toast(t('copied'), 'success')));
     document.getElementById('show-pay')?.addEventListener('click', () => {
       document.getElementById('pay-area').innerHTML = payCardHtml();
       bindPayCard(renderWorker);
@@ -1426,12 +1536,31 @@
     box.innerHTML = `
       <div class="card" style="max-width:600px">
         <h2>${t('inviteTitle')}</h2>
-        <p class="muted">${t('inviteNote')}</p>
+        <p class="muted">${t('linkAlt')} ${t('inviteNote')}</p>
         <div class="invite-box" id="invite-url">${esc(inviteUrl)}</div>
         <div style="display:flex;gap:8px;margin-top:12px">
           <button class="btn outline" id="invite-copy">${t('inviteCopy')}</button>
           <button class="chip red" id="invite-rotate" style="padding:12px 16px">${t('inviteRotate')}</button>
         </div>
+      </div>
+      <div class="card" style="max-width:600px">
+        <h2>${t('inviteById')}</h2>
+        <p class="muted">${t('inviteByIdNote')}</p>
+        <form id="inv-form">
+          <div class="form-row" style="margin-top:10px">
+            <input id="inv-q" placeholder="${t('idPh')}">
+            <button class="btn" type="submit" style="flex:0 0 auto;width:auto;padding:14px 20px">${t('sendInvite')}</button>
+          </div>
+          <div class="error-text" id="inv-error"></div>
+        </form>
+        ${org.pendingInvites.length ? org.pendingInvites.map((i) => `
+          <div class="fin-row" data-inv="${i.id}">
+            <div class="info">
+              <div class="name">${esc(i.name)} <span class="badge-inactive" style="background:var(--amber-soft);color:var(--amber)">${t('pendingTag')}</span></div>
+              <div class="sub">${esc(i.email)}</div>
+            </div>
+            <button class="chip red inv-cancel">✕</button>
+          </div>`).join('') : ''}
       </div>
       <div class="card" style="max-width:600px">
         <h2>${t('checkModeTitle')}</h2>
@@ -1459,6 +1588,23 @@
     `;
     document.getElementById('invite-copy').addEventListener('click', () =>
       navigator.clipboard.writeText(inviteUrl).then(() => toast(t('copied'), 'success')));
+    document.getElementById('inv-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('inv-error');
+      err.textContent = '';
+      try {
+        await api('/api/org/invites', { method: 'POST', body: { query: document.getElementById('inv-q').value } });
+        toast(t('inviteSent'), 'success');
+        renderBusiness();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+    box.querySelectorAll('[data-inv] .inv-cancel').forEach((b) =>
+      b.addEventListener('click', async () => {
+        try {
+          await api(`/api/org/invites/${b.closest('[data-inv]').dataset.inv}`, { method: 'DELETE' });
+          renderBusiness();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      }));
     document.getElementById('invite-rotate').addEventListener('click', async () => {
       if (!confirm(t('inviteRotateConfirm'))) return;
       await api('/api/org/invite/rotate', { method: 'POST' });
