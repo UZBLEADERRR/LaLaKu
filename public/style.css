@@ -451,3 +451,108 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
   .print-area img { width: 130mm; }
   .print-area .pt { font-size: 26pt; font-weight: 800; color: #000; }
 }
+
+/* ---------- Mavzu tanlagich ---------- */
+.theme-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.theme-chip {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; border-radius: 12px; font-weight: 800; font-size: 13.5px;
+  background: var(--bg); color: var(--muted); border: 2px solid transparent;
+}
+.theme-chip.active { border-color: var(--accent); color: var(--text); background: var(--card); }
+.theme-chip .dot { width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(0,0,0,.12); }
+.dot-classic { background: linear-gradient(135deg, #5b5bd6, #8b5cf6); }
+.dot-kakao { background: #FEE500; }
+.dot-mint { background: linear-gradient(135deg, #0d9488, #059669); }
+.dot-dark { background: #171a2c; }
+
+.loc-box { border-top: 1.5px solid var(--line); margin-top: 14px; padding-top: 12px; }
+
+/* ================= KakaoTalk mavzusi (minimalist) ================= */
+:root[data-theme="kakao"] {
+  --bg: #f7f6f2;
+  --card: #ffffff;
+  --text: #1c1c1c;
+  --muted: #8a857c;
+  --line: #eceae2;
+  --accent: #3C1E1E;
+  --accent-2: #FEE500;
+  --accent-soft: #FBF3CE;
+  --shadow: none;
+  --shadow-sm: none;
+}
+[data-theme="kakao"] .card, [data-theme="kakao"] .stat, [data-theme="kakao"] .board-row,
+[data-theme="kakao"] .worker-item, [data-theme="kakao"] .table-wrap, [data-theme="kakao"] .tab,
+[data-theme="kakao"] .branch-chip, [data-theme="kakao"] .theme-chip.active {
+  box-shadow: none; border: 1px solid var(--line);
+}
+[data-theme="kakao"] .btn { background: #FEE500; color: #3C1E1E; box-shadow: none; }
+[data-theme="kakao"] .btn.ghost { background: transparent; color: var(--muted); border: none; }
+[data-theme="kakao"] .btn.outline { background: #fff; color: #3C1E1E; border: 1.5px solid #3C1E1E; }
+[data-theme="kakao"] .btn.red { background: #e5484d; color: #fff; }
+[data-theme="kakao"] .brand .logo { background: #FEE500; color: #3C1E1E; box-shadow: none; }
+[data-theme="kakao"] .hero, [data-theme="kakao"] .hero-login {
+  background: #FEE500; color: #3C1E1E; box-shadow: none;
+}
+[data-theme="kakao"] .hero-login h1, [data-theme="kakao"] .hero-login p { color: #3C1E1E; }
+[data-theme="kakao"] .hero .badge { background: rgba(60, 30, 30, .1); backdrop-filter: none; }
+[data-theme="kakao"] .hero.working { background: #3C1E1E; color: #FEE500; }
+[data-theme="kakao"] .hero.working .badge { background: rgba(254, 229, 0, .15); }
+[data-theme="kakao"] .scan-btn.arrive { background: #FEE500; color: #3C1E1E; box-shadow: none; }
+[data-theme="kakao"] .scan-btn.leave { background: #3C1E1E; color: #FEE500; box-shadow: none; }
+[data-theme="kakao"] .tab.active { background: #3C1E1E; color: #FEE500; }
+[data-theme="kakao"] .branch-chip.active { background: #3C1E1E; color: #FEE500; }
+[data-theme="kakao"] .cal-nav button { background: #FBF3CE; color: #3C1E1E; }
+[data-theme="kakao"] .bottom-nav button.active { color: #3C1E1E; }
+[data-theme="kakao"] .toast { background: #3C1E1E; color: #FEE500; }
+[data-theme="kakao"] .toast.success { background: #0a9f6d; color: #fff; }
+[data-theme="kakao"] .toast.error { background: #e5484d; color: #fff; }
+
+/* ================= Mint mavzusi ================= */
+:root[data-theme="mint"] {
+  --accent: #0d9488;
+  --accent-2: #059669;
+  --accent-soft: #d9f2ec;
+}
+[data-theme="mint"] .brand .logo { background: linear-gradient(135deg, #0d9488, #059669); box-shadow: 0 6px 16px rgba(13, 148, 136, .35); }
+[data-theme="mint"] .hero, [data-theme="mint"] .hero-login { background: linear-gradient(140deg, #047857, #0d9488 60%, #14b8a6); box-shadow: 0 14px 36px rgba(13, 148, 136, .38); }
+[data-theme="mint"] .hero.working { background: linear-gradient(140deg, #1d4ed8, #2563eb 60%, #3b82f6); box-shadow: 0 14px 36px rgba(37, 99, 235, .38); }
+[data-theme="mint"] .btn { background: #0d9488; box-shadow: 0 6px 18px rgba(13, 148, 136, .3); }
+[data-theme="mint"] .btn.ghost { background: transparent; box-shadow: none; }
+[data-theme="mint"] .btn.outline { background: var(--card); box-shadow: none; }
+[data-theme="mint"] .tab.active, [data-theme="mint"] .branch-chip.active { background: #0f766e; color: #fff; }
+
+/* ================= Tungi (dark) mavzu ================= */
+:root[data-theme="dark"] {
+  --bg: #12141f;
+  --card: #1c1f2e;
+  --text: #eceef8;
+  --muted: #8f94ac;
+  --line: #2b2f45;
+  --accent: #818cf8;
+  --accent-2: #a78bfa;
+  --accent-soft: #262a44;
+  --green-soft: #12312a;
+  --red-soft: #3a1d20;
+  --amber-soft: #382a18;
+  --amber: #f59e0b;
+  --green: #34d399;
+  --red: #f87171;
+  --shadow: 0 2px 4px rgba(0, 0, 0, .3), 0 12px 32px rgba(0, 0, 0, .35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3), 0 4px 14px rgba(0, 0, 0, .3);
+}
+[data-theme="dark"] .cal-cell { background: #242840; }
+[data-theme="dark"] .cal-cell.worked { background: var(--green-soft); }
+[data-theme="dark"] .cal-cell.open-day { background: var(--amber-soft); }
+[data-theme="dark"] .chip.gray, [data-theme="dark"] .segment, [data-theme="dark"] .modal-close { background: #262a44; color: var(--muted); }
+[data-theme="dark"] .segment button.active { background: #343a5c; color: var(--text); }
+[data-theme="dark"] .theme-chip { background: #262a44; }
+[data-theme="dark"] input, [data-theme="dark"] select { background: #232741; border-color: #343a5c; }
+[data-theme="dark"] table.summary th { background: #232741; }
+[data-theme="dark"] table.summary th.name-col { background: #232741; }
+[data-theme="dark"] table.summary td.day-cell { color: #4a4f6e; }
+[data-theme="dark"] table.summary tbody tr:hover td { background-color: #232741; }
+[data-theme="dark"] table.summary th.wknd { background: #3a2030; color: #f472b6; }
+[data-theme="dark"] .bottom-nav { background: rgba(20, 22, 36, .9); }
+[data-theme="dark"] .worker-item, [data-theme="dark"] .board-row { background: var(--card); }
+[data-theme="dark"] .toast { background: #eceef8; color: #12141f; }
