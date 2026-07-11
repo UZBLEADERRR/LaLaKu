@@ -1,4 +1,4 @@
-/* LaLaKu Vaqt — mijoz ilovasi */
+/* LaLaKu Vaqt — mijoz ilovasi (SaaS) */
 (() => {
   const $app = document.getElementById('app');
   const $nav = document.getElementById('bottom-nav');
@@ -25,7 +25,7 @@
   const terr = (ex) => (ex.code && (window.I18N[LANG].err[ex.code] || window.I18N.uz.err[ex.code])) || ex.message || t('genericError');
   const MONTHS = () => window.I18N[LANG].months;
   const DOWS = () => window.I18N[LANG].dows;
-  const fmtMoney = (n) => new Intl.NumberFormat(LOCALES[LANG]).format(Math.round(n));
+  const fmtMoney = (n) => (n < 0 ? '−' : '') + '₩' + new Intl.NumberFormat(LOCALES[LANG]).format(Math.abs(Math.round(n)));
 
   const langSelHtml = () => `
     <select class="lang-sel" id="lang-sel" aria-label="Language">
@@ -40,22 +40,21 @@
 
   const ICONS = {
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>',
-    board: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16.5 15.2c2.2.3 3.6 1.8 4 4.3"/></svg>',
     calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="3"/><path d="M8 3v4M16 3v4M3.5 10.5h17"/></svg>',
+    wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M3 10h18M16.5 15h.01"/></svg>',
+    user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c.8-3.8 3.7-6 7.5-6s6.7 2.2 7.5 6"/></svg>',
     scan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></svg>',
   };
 
   const state = {
-    me: null,                    // {role, id, name, hourlyRate, taxPercent}
-    month: null,                 // {year, month} — ko'rilayotgan oy
+    me: null,
+    month: null,
     selectedDay: null,
-    view: 'home',                // ishchi: home | board | calendar
-    boardMode: 'today',          // today | month
-    boardBranch: 0,              // 0 = hammasi
-    adminTab: 'calendar',
-    adminBranch: 0,
+    view: 'home',           // worker: home | calendar | finance | profile | forecast
+    bizTab: 'board',        // business: board | calendar | team | qr | profile
+    padTab: 'payments',
+    joinToken: null,
     timerId: null,
-    boardTimer: null,
   };
 
   // ---------- API ----------
@@ -93,6 +92,7 @@
     const [, m, d] = date.split('-');
     return LANG === 'ko' ? `${+m}월 ${+d}일` : LANG === 'en' ? `${MONTHS()[+m - 1]} ${+d}` : `${+d}-${MONTHS()[+m - 1].toLowerCase()}`;
   };
+  const calTitle = (year, month) => LANG === 'ko' ? `${year}년 ${MONTHS()[month - 1]}` : `${MONTHS()[month - 1]} ${year}`;
 
   function toast(msg, type = '', ms = 3400) {
     const el = document.getElementById('toast');
@@ -109,32 +109,39 @@
     }
     return state.month;
   }
-
   function shiftMonth(delta) {
     const { year, month } = currentMonth();
     const d = new Date(year, month - 1 + delta, 1);
     state.month = { year: d.getFullYear(), month: d.getMonth() + 1 };
     state.selectedDay = null;
   }
-
   function stopTimers() {
     if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
-    if (state.boardTimer) { clearInterval(state.boardTimer); state.boardTimer = null; }
   }
 
-  // ---------- Pastki navigatsiya ----------
+  // Ish haqi hisobi (soatlik yoki kunlik)
+  function earnings(totalMinutes, daysWorked) {
+    const me = state.me;
+    const gross = me.payType === 'daily'
+      ? daysWorked * (me.dailyRate || 0)
+      : (totalMinutes / 60) * (me.hourlyRate || 0);
+    const tax = gross * (me.taxPercent || 0) / 100;
+    return { gross, tax, net: gross - tax, hasRate: me.payType === 'daily' ? me.dailyRate > 0 : me.hourlyRate > 0 };
+  }
+
+  // ---------- Navigatsiya (ishchi) ----------
   function showNav(active) {
     $nav.classList.remove('hidden');
-    $nav.innerHTML = `
-      <button data-v="home" class="${active === 'home' ? 'active' : ''}">${ICONS.home}<span>${{ uz: 'Bosh sahifa', en: 'Home', ko: '홈' }[LANG]}</span></button>
-      <button data-v="board" class="${active === 'board' ? 'active' : ''}">${ICONS.board}<span>${{ uz: 'Davomat', en: 'Attendance', ko: '출근 현황' }[LANG]}</span></button>
-      <button data-v="calendar" class="${active === 'calendar' ? 'active' : ''}">${ICONS.calendar}<span>${{ uz: 'Kalendar', en: 'Calendar', ko: '달력' }[LANG]}</span></button>
-    `;
+    const items = [
+      ['home', ICONS.home, t('navHome')],
+      ['calendar', ICONS.calendar, t('navCalendar')],
+      ['finance', ICONS.wallet, t('navFinance')],
+      ['profile', ICONS.user, t('navProfile')],
+    ];
+    $nav.innerHTML = items.map(([v, ic, label]) =>
+      `<button data-v="${v}" class="${active === v ? 'active' : ''}">${ic}<span>${label}</span></button>`).join('');
     $nav.querySelectorAll('button').forEach((b) =>
-      b.addEventListener('click', () => {
-        state.view = b.dataset.v;
-        renderWorkerView();
-      })
+      b.addEventListener('click', () => { state.view = b.dataset.v; renderWorker(); })
     );
   }
   function hideNav() { $nav.classList.add('hidden'); }
@@ -150,25 +157,20 @@
     document.body.appendChild(back);
     return back.querySelector('.modal');
   }
-  function closeModal() {
-    document.getElementById('modal-back')?.remove();
-  }
+  function closeModal() { document.getElementById('modal-back')?.remove(); }
 
   // ---------- QR skaner ----------
   const scanner = {
     el: document.getElementById('scanner'),
     video: document.getElementById('scanner-video'),
-    stream: null,
-    raf: null,
-
+    stream: null, raf: null,
     async open(onCode) {
       document.getElementById('scanner-hint').textContent = t('scanHint');
       document.getElementById('scanner-cancel').textContent = t('scanCancel');
       this.el.classList.remove('hidden');
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-          audio: false,
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false,
         });
       } catch {
         this.close();
@@ -177,11 +179,9 @@
       }
       this.video.srcObject = this.stream;
       await this.video.play().catch(() => {});
-
       const canvas = document.createElement('canvas');
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       let done = false;
-
       const tick = () => {
         if (done) return;
         if (this.video.readyState === this.video.HAVE_ENOUGH_DATA) {
@@ -202,7 +202,6 @@
       };
       this.raf = requestAnimationFrame(tick);
     },
-
     close() {
       cancelAnimationFrame(this.raf);
       this.stream?.getTracks().forEach((tr) => tr.stop());
@@ -214,197 +213,274 @@
   document.getElementById('scanner-cancel').addEventListener('click', () => scanner.close());
 
   const brandHtml = (sub) => `
-    <div class="brand"><div class="logo">⏱</div><div>LaLaKu Vaqt${sub ? `<small>${sub}</small>` : ''}</div></div>`;
+    <div class="brand"><div class="logo">⏱</div><div>LaLaKu Vaqt${sub ? `<small>${esc(sub)}</small>` : ''}</div></div>`;
 
   // ================================================================
-  //  LOGIN
+  //  AUTH (login / signup)
   // ================================================================
-  async function renderWorkerLogin() {
+  async function renderAuth(mode = 'login') {
     stopTimers();
     hideNav();
     $app.className = 'no-nav';
-    let workers = [], branches = [];
-    try {
-      [workers, branches] = await Promise.all([api('/api/workers'), api('/api/branches')]);
-    } catch {}
-    const branchName = (id) => branches.find((b) => b.id === id)?.name || '';
+
+    let joinBanner = '';
+    if (state.joinToken) {
+      try {
+        const inv = await api(`/api/invite/${encodeURIComponent(state.joinToken)}`);
+        joinBanner = `<div class="card" style="background:var(--green-soft);border:1.5px solid var(--green)">
+          <b>${t('joinTitle', esc(inv.orgName))}</b>
+          <p class="muted" style="margin-top:4px">${t('joinDesc')}</p>
+        </div>`;
+      } catch { state.joinToken = null; }
+    }
 
     $app.innerHTML = `
       <div class="topbar">${brandHtml('')}${langSelHtml()}</div>
+      ${joinBanner}
       <div class="hero-login">
         <h1>${t('welcome')}</h1>
-        <p>${t('choosePrompt')}</p>
+        <p>${t('authIntro')}</p>
       </div>
-      <div class="worker-grid">
-        ${workers.length ? workers.map((w) => `
-          <button class="worker-item" data-id="${w.id}" data-name="${esc(w.name)}">
-            <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
-            ${esc(w.name)}
-            ${branches.length > 1 ? `<small>${esc(branchName(w.branchId))}</small>` : ''}
-          </button>`).join('') : `<div class="card" style="grid-column:1/-1"><p class="muted">${t('noWorkers')}</p></div>`}
+      <div class="segment">
+        <button data-m="login" class="${mode === 'login' ? 'active' : ''}">${t('signIn')}</button>
+        <button data-m="signup" class="${mode === 'signup' ? 'active' : ''}">${t('signUp')}</button>
       </div>
-      <div class="login-links">
-        <button class="btn outline" id="go-board">${t('boardBtn')}</button>
-        <button class="btn ghost" id="go-admin">${t('adminBtn')}</button>
-      </div>
-    `;
-    bindLangSel();
-    document.getElementById('go-admin').addEventListener('click', renderAdminLogin);
-    document.getElementById('go-board').addEventListener('click', () => renderPublicBoard());
-    document.querySelectorAll('.worker-item').forEach((btn) =>
-      btn.addEventListener('click', () => renderPasswordStep(+btn.dataset.id, btn.dataset.name))
-    );
-  }
-
-  function renderPasswordStep(workerId, name) {
-    hideNav();
-    $app.className = 'no-nav';
-    $app.innerHTML = `
-      <div class="topbar">${brandHtml('')}</div>
-      <div class="card" style="text-align:center;padding:28px 22px">
-        <span class="avatar" style="background:${avatarColor(name)};margin:0 auto 12px;width:64px;height:64px;font-size:23px;display:flex;border-radius:22px">${esc(initials(name))}</span>
-        <h2 style="margin-bottom:4px">${esc(name)}</h2>
-        <p class="muted">${t('enterPassword')}</p>
-        <form id="pw-form">
-          <label style="text-align:left">${t('password')}</label>
-          <input type="password" id="pw-input" autocomplete="current-password" inputmode="numeric">
-          <div class="error-text" id="pw-error"></div>
-          <button class="btn" type="submit" style="margin-top:4px">${t('signIn')}</button>
+      <div class="card">
+        <form id="auth-form">
+          ${mode === 'signup' ? `
+            <label>${t('accountType')}</label>
+            <div class="type-pick">
+              <label class="type-card"><input type="radio" name="acctype" value="worker" checked>
+                <b>${t('typeWorker')}</b><span>${t('typeWorkerDesc')}</span></label>
+              <label class="type-card"><input type="radio" name="acctype" value="business">
+                <b>${t('typeBusiness')}</b><span>${t('typeBusinessDesc')}</span></label>
+            </div>
+            <div id="bizname-wrap" class="hidden">
+              <label>${t('businessName')}</label>
+              <input id="auth-bizname" placeholder="🍽">
+            </div>
+            <label>${t('yourName')}</label>
+            <input id="auth-name" autocomplete="name">
+          ` : ''}
+          <label>${t('email')}</label>
+          <input id="auth-email" type="email" autocomplete="email" inputmode="email">
+          <label>${t('password')}</label>
+          <input id="auth-pw" type="password" autocomplete="${mode === 'signup' ? 'new-password' : 'current-password'}">
+          <div class="error-text" id="auth-error"></div>
+          <button class="btn" type="submit">${mode === 'signup' ? t('signUp') : t('signIn')}</button>
+          ${mode === 'signup' ? `<p class="muted" style="text-align:center;margin-top:10px;font-size:13px">${t('trialNote', 7)}</p>` : ''}
         </form>
       </div>
-      <button class="btn ghost" id="back-btn">${t('back')}</button>
+      <button class="btn ghost" id="auth-switch">${mode === 'signup' ? t('haveAccount') : t('noAccount')}</button>
+      <button class="btn ghost" id="go-admin" style="font-size:13px;padding:8px">${t('adminBtn')}</button>
     `;
-    document.getElementById('back-btn').addEventListener('click', renderWorkerLogin);
-    document.getElementById('pw-input').focus();
-    document.getElementById('pw-form').addEventListener('submit', async (e) => {
+    bindLangSel();
+    document.querySelectorAll('.segment button').forEach((b) =>
+      b.addEventListener('click', () => renderAuth(b.dataset.m)));
+    document.getElementById('auth-switch').addEventListener('click', () => renderAuth(mode === 'signup' ? 'login' : 'signup'));
+    document.getElementById('go-admin').addEventListener('click', renderPadminLogin);
+
+    if (mode === 'signup') {
+      document.querySelectorAll('input[name=acctype]').forEach((r) =>
+        r.addEventListener('change', () => {
+          document.getElementById('bizname-wrap').classList.toggle('hidden', r.value !== 'business' || !r.checked);
+        }));
+    }
+
+    document.getElementById('auth-form').addEventListener('submit', async (e) => {
       e.preventDefault();
-      const err = document.getElementById('pw-error');
+      const err = document.getElementById('auth-error');
       err.textContent = '';
       try {
-        const me = await api('/api/login', { method: 'POST', body: { workerId, password: document.getElementById('pw-input').value } });
-        state.me = { role: 'worker', ...me };
-        state.month = null;
-        state.view = 'home';
-        renderWorkerView();
-      } catch (ex) {
-        err.textContent = terr(ex);
-      }
+        const body = {
+          email: document.getElementById('auth-email').value,
+          password: document.getElementById('auth-pw').value,
+        };
+        let me;
+        if (mode === 'signup') {
+          body.name = document.getElementById('auth-name').value;
+          body.type = document.querySelector('input[name=acctype]:checked').value;
+          body.businessName = document.getElementById('auth-bizname')?.value || '';
+          me = await api('/api/register', { method: 'POST', body });
+        } else {
+          me = await api('/api/login', { method: 'POST', body });
+        }
+        state.me = me;
+        await afterAuth();
+      } catch (ex) { err.textContent = terr(ex); }
     });
   }
 
+  async function afterAuth() {
+    if (state.joinToken && state.me.type !== 'business') {
+      try {
+        const r = await api('/api/join', { method: 'POST', body: { token: state.joinToken } });
+        toast(t('joined', r.orgName), 'success', 5000);
+        state.me = await api('/api/me');
+      } catch (ex) { toast(terr(ex), 'error', 5000); }
+      state.joinToken = null;
+      history.replaceState(null, '', '/');
+    }
+    if (state.me.type === 'business') { state.bizTab = 'board'; renderBusiness(); }
+    else { state.view = 'home'; renderWorker(); }
+  }
+
   // ================================================================
-  //  ISHCHI KO'RINISHLARI (pastki navigatsiya bilan)
+  //  OBUNA / TO'LOV
   // ================================================================
-  function renderWorkerView() {
+  function subBannerHtml() {
+    const me = state.me;
+    if (!me.active) {
+      return `<div class="sub-banner expired">🔒 ${t('subExpired')}</div>`;
+    }
+    if (me.daysLeft <= 5) {
+      return `<div class="sub-banner warn">⏳ ${t('paidLeft', me.daysLeft)}</div>`;
+    }
+    return '';
+  }
+
+  function payCardHtml() {
+    const me = state.me;
+    if (me.pendingPayment) {
+      return `<div class="card paywall"><h2>${t('payTitle')}</h2><p class="muted">${t('payPending')}</p></div>`;
+    }
+    return `
+      <div class="card paywall">
+        <h2>${t('payTitle')}</h2>
+        <p class="muted">${t('payDesc', new Intl.NumberFormat(LOCALES[LANG]).format(me.price))}</p>
+        <div class="bank-box">
+          <div><b>${t('payBank')}</b></div>
+          <div class="acc" id="bank-acc">${t('payAccount')}</div>
+          <button class="chip" id="acc-copy">${t('copy')}</button>
+        </div>
+        <label class="btn outline" style="text-align:center;cursor:pointer;margin-top:12px">
+          ${t('payUpload')}
+          <input type="file" id="pay-file" accept="image/*" class="hidden">
+        </label>
+        <div id="pay-preview" class="pay-preview hidden"><img alt=""></div>
+        <label>${t('payLink')}</label>
+        <input id="pay-link" placeholder="https://toss.me/...">
+        <div class="error-text" id="pay-error"></div>
+        <button class="btn" id="pay-send">${t('paySend')}</button>
+      </div>`;
+  }
+
+  function bindPayCard(rerender) {
+    document.getElementById('acc-copy')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(document.getElementById('bank-acc').textContent.trim())
+        .then(() => toast(t('copied'), 'success'));
+    });
+    let imageData = null;
+    document.getElementById('pay-file')?.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      imageData = await compressImage(file);
+      const prev = document.getElementById('pay-preview');
+      prev.querySelector('img').src = imageData;
+      prev.classList.remove('hidden');
+    });
+    document.getElementById('pay-send')?.addEventListener('click', async () => {
+      const err = document.getElementById('pay-error');
+      err.textContent = '';
+      try {
+        await api('/api/payment', {
+          method: 'POST',
+          body: { image: imageData, link: document.getElementById('pay-link').value || null },
+        });
+        toast(t('paySent'), 'success', 5000);
+        state.me = await api('/api/me');
+        rerender();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+  }
+
+  async function compressImage(file) {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 1200 / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.72);
+  }
+
+  // ================================================================
+  //  ISHCHI
+  // ================================================================
+  function renderWorker() {
     stopTimers();
     $app.className = '';
     showNav(state.view);
-    if (state.view === 'board') return renderBoard(false);
     if (state.view === 'calendar') return renderMyCalendar();
+    if (state.view === 'finance') return renderFinance();
+    if (state.view === 'profile') return renderProfile();
+    if (state.view === 'forecast') return renderForecast();
     return renderWorkerHome();
   }
 
-  // Maosh kartasi (oylik daromad hisobi)
-  function salaryCardHtml(totalMinutes) {
-    const rate = state.me.hourlyRate || 0;
-    const tax = state.me.taxPercent || 0;
-    const gearBtn = `<button class="chip gray" id="salary-gear">⚙️</button>`;
-    if (!rate) {
-      return `
-      <div class="card">
-        <div class="modal-head" style="margin-bottom:4px"><h2 style="margin:0">${t('salary')}</h2>${gearBtn}</div>
-        <p class="muted">${t('salaryHint')}</p>
-      </div>`;
-    }
-    const gross = totalMinutes / 60 * rate;
-    const taxAmt = gross * tax / 100;
-    const net = gross - taxAmt;
-    return `
-      <div class="card">
-        <div class="modal-head" style="margin-bottom:6px"><h2 style="margin:0">${t('salary')}</h2>${gearBtn}</div>
-        <div class="sal-row"><span class="muted">${t('gross')}</span><b>${fmtMoney(gross)}</b></div>
-        ${tax > 0 ? `<div class="sal-row"><span class="muted">${t('taxLabel', tax)}</span><b style="color:var(--red)">−${fmtMoney(taxAmt)}</b></div>` : ''}
-        <div class="sal-row net"><span>${t('net')}</span><b style="color:var(--green)">${fmtMoney(net)}</b></div>
-      </div>`;
-  }
-
-  function bindSalaryCard(rerender) {
-    document.getElementById('salary-gear')?.addEventListener('click', () => {
-      const modal = openModal(`
-        <div class="modal-head"><h2 style="margin:0">${t('salarySettings')}</h2><button class="modal-close" id="m-close">✕</button></div>
-        <p class="muted">${t('salaryHint')}</p>
-        <label>${t('hourlyRate')}</label>
-        <input type="number" id="s-rate" min="0" step="any" inputmode="decimal" value="${state.me.hourlyRate || ''}" placeholder="10030">
-        <label>${t('taxPercent')}</label>
-        <input type="number" id="s-tax" min="0" max="100" step="any" inputmode="decimal" value="${state.me.taxPercent || ''}" placeholder="3.3">
-        <div class="error-text" id="s-error"></div>
-        <button class="btn" id="s-save">${t('save')}</button>
-      `);
-      modal.querySelector('#m-close').addEventListener('click', closeModal);
-      modal.querySelector('#s-save').addEventListener('click', async () => {
-        const err = modal.querySelector('#s-error');
-        err.textContent = '';
-        try {
-          const hourlyRate = Number(modal.querySelector('#s-rate').value || 0);
-          const taxPercent = Number(modal.querySelector('#s-tax').value || 0);
-          await api('/api/my/settings', { method: 'PUT', body: { hourlyRate, taxPercent } });
-          state.me.hourlyRate = hourlyRate;
-          state.me.taxPercent = taxPercent;
-          toast(t('saved'), 'success');
-          closeModal();
-          rerender();
-        } catch (ex) { err.textContent = terr(ex); }
-      });
-    });
-  }
-
   async function renderWorkerHome() {
-    let status, summary;
     const now = new Date();
     const year = now.getFullYear(), month = now.getMonth() + 1;
+    let status, summary;
     try {
       [status, summary] = await Promise.all([
         api('/api/my/status'),
         api(`/api/my/summary?year=${year}&month=${month}`),
       ]);
     } catch (ex) {
-      if (ex.code === 'AUTH') return renderWorkerLogin();
+      if (ex.code === 'AUTH') return renderAuth();
       toast(terr(ex), 'error');
       return;
     }
 
+    const me = state.me;
     const today = todayStr();
     const todayData = summary.days[today];
     const todayMin = todayData ? todayData.minutes : 0;
+    const hasTeam = me.memberships.length > 0;
+    const e = earnings(summary.totalMinutes, summary.daysWorked);
+
+    let actionHtml;
+    if (!me.active) {
+      actionHtml = payCardHtml();
+    } else if (hasTeam) {
+      actionHtml = `
+        <button class="scan-btn ${status.checkedIn ? 'leave' : 'arrive'}" id="scan-btn">
+          ${ICONS.scan}
+          ${status.checkedIn ? t('checkoutBtn') : t('checkinBtn')}
+        </button>
+        <button class="btn ghost" id="punch-btn" style="margin-top:-6px;margin-bottom:12px;font-size:13.5px">${t('manualLink')}</button>`;
+    } else {
+      actionHtml = `
+        <button class="scan-btn ${status.checkedIn ? 'leave' : 'arrive'}" id="punch-btn">
+          ${status.checkedIn ? t('punchOut') : t('punchIn')}
+        </button>`;
+    }
 
     $app.innerHTML = `
       <div class="topbar">
-        ${brandHtml(esc(state.me.name))}
-        <div style="display:flex;gap:8px;align-items:center">
-          ${langSelHtml()}
-          <button class="chip gray" id="logout-btn">${t('logout')}</button>
-        </div>
+        ${brandHtml(me.name)}
+        <div style="display:flex;gap:8px;align-items:center">${langSelHtml()}</div>
       </div>
+      ${subBannerHtml()}
 
       <div class="hero ${status.checkedIn ? 'working' : ''}">
         <span class="badge">${status.checkedIn ? `<span class="pulse-dot"></span> ${t('atWork')}` : t('offWork')}</span>
         <div class="big" id="status-time">${status.checkedIn ? '' : fmtH(todayMin)}</div>
         <div class="sub">${status.checkedIn
-          ? `${t('arrivedAt', status.since)}${status.sinceDate !== today ? ` (${status.sinceDate})` : ''}`
+          ? `${t('arrivedAt', status.since)}${status.orgName ? ` · ${esc(status.orgName)}` : ''}`
           : (todayMin > 0 ? t('restMsg') : t('scanPrompt'))}</div>
       </div>
 
-      <button class="scan-btn ${status.checkedIn ? 'leave' : 'arrive'}" id="scan-btn">
-        ${ICONS.scan}
-        ${status.checkedIn ? t('checkoutBtn') : t('checkinBtn')}
-      </button>
+      ${actionHtml}
 
       <div class="stat-row">
         <div class="stat"><div class="value">${fmtH(todayMin)}</div><div class="label">${t('workedToday')}</div></div>
         <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthTotal', MONTHS()[month - 1])}</div></div>
       </div>
 
-      ${salaryCardHtml(summary.totalMinutes)}
+      ${salaryCardHtml(e)}
+      <button class="btn outline" id="forecast-btn" style="margin-bottom:14px">${t('forecastBtn')}</button>
 
       ${todayData ? `
       <div class="card">
@@ -417,12 +493,13 @@
       </div>` : ''}
     `;
     bindLangSel();
-    bindSalaryCard(renderWorkerView);
+    bindSalaryCard(renderWorker);
+    bindPayCard(renderWorker);
+    document.getElementById('forecast-btn').addEventListener('click', () => { state.view = 'forecast'; renderWorker(); });
 
     if (status.checkedIn && status.sinceIso) {
       const started = new Date(status.sinceIso);
-      const closedBefore = todayData
-        ? todayData.sessions.filter((s) => s.out).reduce((a, s) => a + s.minutes, 0) : 0;
+      const closedBefore = todayData ? todayData.sessions.filter((s) => s.out).reduce((a, s) => a + s.minutes, 0) : 0;
       const upd = () => {
         const mins = Math.max(0, Math.floor((Date.now() - started) / 60_000));
         const el = document.getElementById('status-time');
@@ -432,42 +509,106 @@
       state.timerId = setInterval(upd, 15_000);
     }
 
-    document.getElementById('logout-btn').addEventListener('click', async () => {
-      await api('/api/logout', { method: 'POST' });
-      state.me = null;
-      renderWorkerLogin();
-    });
+    const doAction = async (fn) => {
+      try {
+        const r = await fn();
+        toast(r.action === 'in' ? t('scanInOk', r.time) : t('scanOutOk', r.time), 'success', 4500);
+        renderWorker();
+      } catch (ex) { toast(terr(ex), 'error', 4500); }
+    };
+    document.getElementById('scan-btn')?.addEventListener('click', () =>
+      scanner.open((code) => doAction(() => api('/api/scan', { method: 'POST', body: { code } }))));
+    document.getElementById('punch-btn')?.addEventListener('click', () =>
+      doAction(() => api('/api/punch', { method: 'POST' })));
+  }
 
-    document.getElementById('scan-btn').addEventListener('click', () => {
-      scanner.open(async (code) => {
+  // ---------- Maosh kartasi ----------
+  function salaryCardHtml(e) {
+    const gearBtn = `<button class="chip gray" id="salary-gear">⚙️</button>`;
+    if (!e.hasRate) {
+      return `<div class="card">
+        <div class="modal-head" style="margin-bottom:4px"><h2 style="margin:0">${t('salary')}</h2>${gearBtn}</div>
+        <p class="muted">${t('salaryHint')}</p>
+      </div>`;
+    }
+    return `<div class="card">
+      <div class="modal-head" style="margin-bottom:6px"><h2 style="margin:0">${t('salary')}</h2>${gearBtn}</div>
+      <div class="sal-row"><span class="muted">${t('gross')}</span><b>${fmtMoney(e.gross)}</b></div>
+      ${e.tax > 0 ? `<div class="sal-row"><span class="muted">${t('taxLabel', state.me.taxPercent)}</span><b style="color:var(--red)">−${fmtMoney(e.tax)}</b></div>` : ''}
+      <div class="sal-row net"><span>${t('net')}</span><b style="color:var(--green)">${fmtMoney(e.net)}</b></div>
+    </div>`;
+  }
+
+  function bindSalaryCard(rerender) {
+    document.getElementById('salary-gear')?.addEventListener('click', () => {
+      const me = state.me;
+      const modal = openModal(`
+        <div class="modal-head"><h2 style="margin:0">${t('paySettings')}</h2><button class="modal-close" id="m-close">✕</button></div>
+        <label>${t('payType')}</label>
+        <div class="segment" style="margin-bottom:4px">
+          <button type="button" data-pt="hourly" class="${me.payType !== 'daily' ? 'active' : ''}">${t('payHourly')}</button>
+          <button type="button" data-pt="daily" class="${me.payType === 'daily' ? 'active' : ''}">${t('payDaily')}</button>
+        </div>
+        <div id="rate-hourly" class="${me.payType === 'daily' ? 'hidden' : ''}">
+          <label>${t('hourlyRate')}</label>
+          <input type="number" id="s-hourly" min="0" step="any" inputmode="decimal" value="${me.hourlyRate || ''}" placeholder="10030">
+        </div>
+        <div id="rate-daily" class="${me.payType === 'daily' ? '' : 'hidden'}">
+          <label>${t('dailyRate')}</label>
+          <input type="number" id="s-daily" min="0" step="any" inputmode="decimal" value="${me.dailyRate || ''}" placeholder="100000">
+        </div>
+        <label>${t('taxPercent')}</label>
+        <input type="number" id="s-tax" min="0" max="100" step="any" inputmode="decimal" value="${me.taxPercent || ''}" placeholder="3.3">
+        <div class="error-text" id="s-error"></div>
+        <button class="btn" id="s-save">${t('save')}</button>
+      `);
+      let payType = me.payType;
+      modal.querySelectorAll('[data-pt]').forEach((b) =>
+        b.addEventListener('click', () => {
+          payType = b.dataset.pt;
+          modal.querySelectorAll('[data-pt]').forEach((x) => x.classList.toggle('active', x === b));
+          modal.querySelector('#rate-hourly').classList.toggle('hidden', payType === 'daily');
+          modal.querySelector('#rate-daily').classList.toggle('hidden', payType !== 'daily');
+        }));
+      modal.querySelector('#m-close').addEventListener('click', closeModal);
+      modal.querySelector('#s-save').addEventListener('click', async () => {
+        const err = modal.querySelector('#s-error');
+        err.textContent = '';
         try {
-          const r = await api('/api/scan', { method: 'POST', body: { code } });
-          toast(r.action === 'in' ? t('scanInOk', r.time) : t('scanOutOk', r.time), 'success', 4500);
-          renderWorkerView();
-        } catch (ex) {
-          toast(terr(ex), 'error', 4500);
-        }
+          const body = {
+            payType,
+            hourlyRate: Number(modal.querySelector('#s-hourly').value || 0),
+            dailyRate: Number(modal.querySelector('#s-daily').value || 0),
+            taxPercent: Number(modal.querySelector('#s-tax').value || 0),
+          };
+          await api('/api/my/pay', { method: 'PUT', body });
+          Object.assign(state.me, body);
+          toast(t('saved'), 'success');
+          closeModal();
+          rerender();
+        } catch (ex) { err.textContent = terr(ex); }
       });
     });
   }
 
-  // ---------- Ishchi: o'z kalendari ----------
+  // ---------- Kalendar (ishchi) ----------
   async function renderMyCalendar() {
     const { year, month } = currentMonth();
     let summary;
     try {
       summary = await api(`/api/my/summary?year=${year}&month=${month}`);
     } catch (ex) {
-      if (ex.code === 'AUTH') return renderWorkerLogin();
+      if (ex.code === 'AUTH') return renderAuth();
       toast(terr(ex), 'error');
       return;
     }
+    const e = earnings(summary.totalMinutes, summary.daysWorked);
 
     $app.innerHTML = `
-      <div class="topbar">${brandHtml(esc(state.me.name))}${langSelHtml()}</div>
+      <div class="topbar">${brandHtml(state.me.name)}${langSelHtml()}</div>
       <div class="stat-row">
         <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthHours', MONTHS()[month - 1])}</div></div>
-        <div class="stat"><div class="value">${Object.values(summary.days).filter((d) => d.minutes > 0 || d.open).length}</div><div class="label">${t('daysWorked')}</div></div>
+        <div class="stat"><div class="value">${summary.daysWorked}</div><div class="label">${t('daysWorked')}</div></div>
       </div>
       <div class="card">
         ${calendarHtml(summary, year, month)}
@@ -475,12 +616,12 @@
           ${state.selectedDay ? dayDetailHtml(summary, state.selectedDay) : ''}
         </div>
       </div>
-      ${salaryCardHtml(summary.totalMinutes)}
+      <button class="btn outline" id="copy-report" style="margin-bottom:14px">${t('copyReport')}</button>
+      ${salaryCardHtml(e)}
     `;
     bindLangSel();
-    bindSalaryCard(renderWorkerView);
-
-    bindCalendarNav(renderWorkerView);
+    bindSalaryCard(renderWorker);
+    bindCalendarNav(renderWorker);
     bindCalendarCells((date) => {
       state.selectedDay = state.selectedDay === date ? null : date;
       const det = document.getElementById('day-detail');
@@ -490,12 +631,27 @@
       } else det.classList.add('hidden');
       document.querySelectorAll('.cal-cell').forEach((c) => c.classList.toggle('selected', c.dataset.date === state.selectedDay));
     });
+
+    // SMS uchun ro'yxat nusxalash
+    document.getElementById('copy-report').addEventListener('click', () => {
+      const lines = [t('reportTitle', MONTHS()[month - 1], year, state.me.name)];
+      const dates = Object.keys(summary.days).sort();
+      for (const d of dates) {
+        const dd = summary.days[d];
+        const sess = dd.sessions.map((s) => `${s.in}→${s.out || '...'}`).join(', ');
+        lines.push(`${+d.split('-')[2]}: ${sess} (${fmtH(dd.minutes)})`);
+      }
+      lines.push(`${t('reportTotal')}: ${fmtH(summary.totalMinutes)} (${summary.daysWorked} ${t('dUnit')})`);
+      navigator.clipboard.writeText(lines.join('\n'))
+        .then(() => toast(t('copied'), 'success'))
+        .catch(() => toast(t('genericError'), 'error'));
+    });
   }
 
   function calendarHtml(summary, year, month) {
     const first = new Date(year, month - 1, 1);
     const daysInMonth = new Date(year, month, 0).getDate();
-    const lead = (first.getDay() + 6) % 7; // dushanbadan boshlanadi
+    const lead = (first.getDay() + 6) % 7;
     const today = todayStr();
     let cells = DOWS().map((d) => `<div class="cal-dow">${d}</div>`).join('');
     for (let i = 0; i < lead; i++) cells += `<div class="cal-cell empty"></div>`;
@@ -512,17 +668,12 @@
         <div class="h">${dd && dd.minutes > 0 ? fmtH(dd.minutes) : ''}</div>
       </div>`;
     }
-    const title = LANG === 'ko' ? `${year}년 ${MONTHS()[month - 1]}` : `${MONTHS()[month - 1]} ${year}`;
     return `
       <div class="cal-head">
-        <div class="cal-title">${title}</div>
-        <div class="cal-nav">
-          <button id="cal-prev" aria-label="prev">‹</button>
-          <button id="cal-next" aria-label="next">›</button>
-        </div>
+        <div class="cal-title">${calTitle(year, month)}</div>
+        <div class="cal-nav"><button id="cal-prev">‹</button><button id="cal-next">›</button></div>
       </div>
-      <div class="cal-grid">${cells}</div>
-    `;
+      <div class="cal-grid">${cells}</div>`;
   }
 
   function dayDetailHtml(summary, date) {
@@ -542,142 +693,411 @@
   }
   function bindCalendarCells(onPick) {
     document.querySelectorAll('.cal-cell[data-date]').forEach((c) =>
-      c.addEventListener('click', () => onPick(c.dataset.date))
-    );
+      c.addEventListener('click', () => onPick(c.dataset.date)));
   }
 
-  // ================================================================
-  //  DAVOMAT TAXTASI (hamma uchun ochiq)
-  // ================================================================
-  function renderPublicBoard() {
-    stopTimers();
-    hideNav();
-    $app.className = 'no-nav';
-    renderBoard(true);
+  // ---------- Moliya ----------
+  function nextDue(item, base = new Date()) {
+    const today = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+    if (item.dueDate) {
+      const d = new Date(item.dueDate + 'T00:00:00');
+      return Math.round((d - today) / 86400_000);
+    }
+    if (item.dueDay) {
+      const y = today.getFullYear(), m = today.getMonth();
+      const dim = new Date(y, m + 1, 0).getDate();
+      let due = new Date(y, m, Math.min(item.dueDay, dim));
+      if ((due - today) / 86400_000 < -7) {
+        const dim2 = new Date(y, m + 2, 0).getDate();
+        due = new Date(y, m + 1, Math.min(item.dueDay, dim2));
+      }
+      return Math.round((due - today) / 86400_000);
+    }
+    return null;
   }
 
-  async function renderBoard(isPublic) {
-    const container = () => document.getElementById('board-content');
+  async function renderFinance() {
+    const now = new Date();
+    const year = now.getFullYear(), month = now.getMonth() + 1;
+    let items, summary;
+    try {
+      [items, summary] = await Promise.all([
+        api('/api/finance'),
+        api(`/api/my/summary?year=${year}&month=${month}`),
+      ]);
+    } catch (ex) {
+      if (ex.code === 'AUTH') return renderAuth();
+      toast(terr(ex), 'error');
+      return;
+    }
+
+    const e = earnings(summary.totalMinutes, summary.daysWorked);
+    const act = items.filter((i) => i.active);
+    const incomes = act.filter((i) => i.kind === 'income').reduce((a, i) => a + i.amount, 0);
+    const expenses = act.filter((i) => i.kind === 'expense').reduce((a, i) => a + i.amount, 0);
+    const debtsMonth = act.filter((i) => i.kind === 'debt' &&
+      (i.dueDay || (i.dueDate && i.dueDate.startsWith(`${year}-${pad(month)}`)))).reduce((a, i) => a + i.amount, 0);
+    const leftOver = e.net + incomes - expenses - debtsMonth;
+
+    // Eslatmalar: 7 kun ichida to'lanishi kerak bo'lganlar
+    const reminders = act
+      .filter((i) => i.kind !== 'income')
+      .map((i) => ({ ...i, days: nextDue(i) }))
+      .filter((i) => i.days !== null && i.days <= 7)
+      .sort((a, b) => a.days - b.days);
+
+    const kindSection = (kind, titleKey) => {
+      const list = items.filter((i) => i.kind === kind);
+      return `
+        <div class="card">
+          <div class="modal-head" style="margin-bottom:8px">
+            <h2 style="margin:0">${t(titleKey)}</h2>
+            <button class="chip" data-add="${kind}">${t('add')}</button>
+          </div>
+          ${list.length ? list.map((i) => `
+            <div class="fin-row ${i.active ? '' : 'paid'}" data-id="${i.id}">
+              <div class="info">
+                <div class="name">${esc(i.title)}${i.active ? '' : ` <span class="badge-inactive">${t('paidTag')}</span>`}</div>
+                <div class="sub">${i.dueDay ? t('everyMonthDay').split('(')[0].trim() + ': ' + i.dueDay : (i.dueDate || '')}</div>
+              </div>
+              <b class="amt ${kind === 'income' ? 'plus' : ''}">${kind === 'income' ? '+' : '−'}${fmtMoney(i.amount)}</b>
+              <div class="actions">
+                ${kind === 'debt' ? `<button class="chip gray f-paid">${i.active ? t('markPaid') : t('markUnpaid')}</button>` : ''}
+                <button class="chip red f-del">🗑</button>
+              </div>
+            </div>`).join('') : `<p class="muted">${t('noFinance')}</p>`}
+        </div>`;
+    };
+
+    $app.innerHTML = `
+      <div class="topbar">${brandHtml(state.me.name)}${langSelHtml()}</div>
+
+      <div class="card remain-card">
+        <h2>${t('remaining')}</h2>
+        <div class="sal-row"><span class="muted">${t('monthEarn')}</span><b>${fmtMoney(e.net)}</b></div>
+        ${incomes ? `<div class="sal-row"><span class="muted">${t('otherIncome')}</span><b style="color:var(--green)">+${fmtMoney(incomes)}</b></div>` : ''}
+        ${expenses ? `<div class="sal-row"><span class="muted">${t('monthExpenses')}</span><b style="color:var(--red)">−${fmtMoney(expenses)}</b></div>` : ''}
+        ${debtsMonth ? `<div class="sal-row"><span class="muted">${t('monthDebts')}</span><b style="color:var(--red)">−${fmtMoney(debtsMonth)}</b></div>` : ''}
+        <div class="sal-row net"><span>${t('leftOver')}</span><b style="color:${leftOver >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtMoney(leftOver)}</b></div>
+      </div>
+
+      <div class="card">
+        <h2>${t('reminders')}</h2>
+        ${reminders.length ? reminders.map((r) => `
+          <div class="fin-row">
+            <div class="info">
+              <div class="name">${esc(r.title)}</div>
+              <div class="sub ${r.days <= 0 ? 'urgent' : ''}">${t('dueInDays', r.days)}</div>
+            </div>
+            <b class="amt">−${fmtMoney(r.amount)}</b>
+          </div>`).join('') : `<p class="muted">${t('noReminders')}</p>`}
+      </div>
+
+      <p class="muted" style="margin:0 4px 14px">${t('financeNote')}</p>
+
+      ${kindSection('expense', 'kindExpensePl')}
+      ${kindSection('debt', 'kindDebtPl')}
+      ${kindSection('income', 'kindIncomePl')}
+    `;
+    bindLangSel();
+
+    document.querySelectorAll('[data-add]').forEach((b) =>
+      b.addEventListener('click', () => openFinanceModal(b.dataset.add)));
+
+    document.querySelectorAll('.fin-row[data-id]').forEach((row) => {
+      const id = row.dataset.id;
+      const item = items.find((i) => String(i.id) === id);
+      row.querySelector('.f-paid')?.addEventListener('click', async () => {
+        try {
+          await api(`/api/finance/${id}`, { method: 'PUT', body: { active: !item.active } });
+          renderWorker();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
+      row.querySelector('.f-del')?.addEventListener('click', async () => {
+        if (!confirm(t('delEntryConfirm'))) return;
+        try {
+          await api(`/api/finance/${id}`, { method: 'DELETE' });
+          toast(t('deleted'), 'success');
+          renderWorker();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
+    });
+  }
+
+  function openFinanceModal(kind) {
+    const kindName = { expense: t('kindExpense'), debt: t('kindDebt'), income: t('kindIncome') }[kind];
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${kindName}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <label>${t('itemTitle')}</label>
+      <input id="f-title" placeholder="${t('itemTitlePh')}">
+      <label>${t('amount')}</label>
+      <input id="f-amount" type="number" min="0" step="any" inputmode="decimal">
+      <div class="form-row">
+        <div><label>${t('everyMonthDay')}</label><input id="f-day" type="number" min="1" max="31" inputmode="numeric"></div>
+        ${kind === 'debt' ? `<div><label>${t('onceDate')}</label><input id="f-date" type="date"></div>` : ''}
+      </div>
+      <div class="error-text" id="f-error"></div>
+      <button class="btn" id="f-save">${t('addItem')}</button>
+    `);
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelector('#f-save').addEventListener('click', async () => {
+      const err = modal.querySelector('#f-error');
+      err.textContent = '';
+      try {
+        await api('/api/finance', {
+          method: 'POST',
+          body: {
+            kind,
+            title: modal.querySelector('#f-title').value,
+            amount: modal.querySelector('#f-amount').value,
+            dueDay: modal.querySelector('#f-day').value || null,
+            dueDate: modal.querySelector('#f-date')?.value || null,
+          },
+        });
+        toast(t('added'), 'success');
+        closeModal();
+        renderWorker();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+  }
+
+  // ---------- Prognoz ----------
+  async function renderForecast() {
+    let items = [];
+    try { items = await api('/api/finance'); } catch {}
+    const expenses = items.filter((i) => i.active && i.kind === 'expense').reduce((a, i) => a + i.amount, 0);
+    const me = state.me;
 
     $app.innerHTML = `
       <div class="topbar">
-        ${brandHtml(t('attendance'))}
+        ${brandHtml(t('forecast').replace('🔮 ', ''))}
+        <button class="chip gray" id="back-btn">${t('back')}</button>
+      </div>
+      <div class="card">
+        <h2>${t('forecast')}</h2>
+        <p class="muted">${t('forecastNote')}</p>
+        <label>${t('payType')}</label>
+        <div class="segment">
+          <button type="button" data-pt="hourly" class="${me.payType !== 'daily' ? 'active' : ''}">${t('payHourly')}</button>
+          <button type="button" data-pt="daily" class="${me.payType === 'daily' ? 'active' : ''}">${t('payDaily')}</button>
+        </div>
+        <div class="form-row">
+          <div><label>${t('fDays')}</label><input id="fc-days" type="number" min="0" max="31" inputmode="numeric" value="22"></div>
+          <div id="fc-hours-wrap" class="${me.payType === 'daily' ? 'hidden' : ''}"><label>${t('fHours')}</label><input id="fc-hours" type="number" min="0" max="24" step="any" inputmode="decimal" value="8"></div>
+        </div>
+        <div class="form-row">
+          <div id="fc-rate-wrap"><label id="fc-rate-label">${me.payType === 'daily' ? t('dailyRate') : t('hourlyRate')}</label>
+            <input id="fc-rate" type="number" min="0" step="any" inputmode="decimal" value="${(me.payType === 'daily' ? me.dailyRate : me.hourlyRate) || ''}"></div>
+          <div><label>${t('taxPercent')}</label><input id="fc-tax" type="number" min="0" max="100" step="any" inputmode="decimal" value="${me.taxPercent || 0}"></div>
+        </div>
+      </div>
+      <div class="card remain-card">
+        <h2>${t('fResult')}</h2>
+        <div class="sal-row"><span class="muted">${t('fGross')}</span><b id="fc-gross">—</b></div>
+        <div class="sal-row"><span class="muted" id="fc-tax-label"></span><b id="fc-taxv" style="color:var(--red)">—</b></div>
+        <div class="sal-row"><span class="muted">${t('fNet')}</span><b id="fc-net" style="color:var(--green)">—</b></div>
+        ${expenses ? `<div class="sal-row"><span class="muted">${t('monthExpenses')}</span><b style="color:var(--red)">−${fmtMoney(expenses)}</b></div>
+        <div class="sal-row net"><span>${t('fMinusExp')}</span><b id="fc-left" style="color:var(--green)">—</b></div>` : ''}
+      </div>
+    `;
+    document.getElementById('back-btn').addEventListener('click', () => { state.view = 'home'; renderWorker(); });
+
+    let payType = me.payType;
+    const recompute = () => {
+      const days = Number(document.getElementById('fc-days').value || 0);
+      const hours = Number(document.getElementById('fc-hours')?.value || 0);
+      const rate = Number(document.getElementById('fc-rate').value || 0);
+      const tax = Number(document.getElementById('fc-tax').value || 0);
+      const gross = payType === 'daily' ? days * rate : days * hours * rate;
+      const taxAmt = gross * tax / 100;
+      const net = gross - taxAmt;
+      document.getElementById('fc-gross').textContent = fmtMoney(gross);
+      document.getElementById('fc-tax-label').textContent = t('taxLabel', tax);
+      document.getElementById('fc-taxv').textContent = '−' + fmtMoney(taxAmt);
+      document.getElementById('fc-net').textContent = fmtMoney(net);
+      const left = document.getElementById('fc-left');
+      if (left) left.textContent = fmtMoney(net - expenses);
+    };
+    document.querySelectorAll('[data-pt]').forEach((b) =>
+      b.addEventListener('click', () => {
+        payType = b.dataset.pt;
+        document.querySelectorAll('[data-pt]').forEach((x) => x.classList.toggle('active', x === b));
+        document.getElementById('fc-hours-wrap').classList.toggle('hidden', payType === 'daily');
+        document.getElementById('fc-rate-label').textContent = payType === 'daily' ? t('dailyRate') : t('hourlyRate');
+        document.getElementById('fc-rate').value = (payType === 'daily' ? state.me.dailyRate : state.me.hourlyRate) || '';
+        recompute();
+      }));
+    ['fc-days', 'fc-hours', 'fc-rate', 'fc-tax'].forEach((id) =>
+      document.getElementById(id)?.addEventListener('input', recompute));
+    recompute();
+  }
+
+  // ---------- Profil (ishchi) ----------
+  async function renderProfile() {
+    const me = state.me;
+    const tzOpts = TIMEZONES.map(([tz, label]) =>
+      `<option value="${tz}" ${tz === me.timezone ? 'selected' : ''}>${label}</option>`).join('');
+    const tzCustom = TIMEZONES.some(([tz]) => tz === me.timezone) ? '' :
+      `<option value="${esc(me.timezone)}" selected>${esc(me.timezone)}</option>`;
+
+    $app.innerHTML = `
+      <div class="topbar">
+        ${brandHtml(t('profile'))}
         <div style="display:flex;gap:8px;align-items:center">
           ${langSelHtml()}
-          ${isPublic ? `<button class="chip gray" id="back-btn">${t('loginLink')}</button>` : ''}
+          <button class="chip gray" id="logout-btn">${t('logout')}</button>
         </div>
       </div>
-      <div class="segment">
-        <button data-m="today" class="${state.boardMode === 'today' ? 'active' : ''}">${t('today')}</button>
-        <button data-m="month" class="${state.boardMode === 'month' ? 'active' : ''}">${t('month')}</button>
+      ${subBannerHtml()}
+
+      <div class="card">
+        <h2>${t('subscription')}</h2>
+        <p class="muted">${me.active ? t(me.daysLeft > 7 ? 'paidLeft' : 'trialLeft', me.daysLeft) : t('subExpired')}</p>
+        <div id="pay-area">${me.active && !me.pendingPayment ? `<button class="btn outline" id="show-pay" style="margin-top:8px">${t('payTitle')}</button>` : payCardHtml()}</div>
       </div>
-      <div id="board-content"><div class="loading-screen" style="padding-top:60px"><div class="spinner"></div></div></div>
+
+      <div class="card">
+        <h2>${t('accountInfo')}</h2>
+        <label>${t('yourName')}</label>
+        <input id="p-name" value="${esc(me.name)}">
+        <label>${t('email')}</label>
+        <input id="p-email" type="email" value="${esc(me.email)}">
+        <label>${t('changePassword')}</label>
+        <input id="p-pw" type="password" autocomplete="new-password">
+        <label>${t('timezone')}</label>
+        <select id="p-tz">${tzCustom}${tzOpts}</select>
+        <p class="muted" style="margin-top:8px;font-size:13px">${t('tzNote')}</p>
+        <div class="error-text" id="p-error"></div>
+        <button class="btn" id="p-save">${t('save')}</button>
+      </div>
+
+      <div class="card">
+        <h2>${t('myTeams')}</h2>
+        ${me.memberships.length ? me.memberships.map((m) => `
+          <div class="fin-row" data-org="${m.orgId}">
+            <div class="info"><div class="name">🍽 ${esc(m.orgName)}</div></div>
+            <button class="chip red team-leave">${t('leaveTeam')}</button>
+          </div>`).join('') : `<p class="muted">${t('noTeams')}</p>`}
+      </div>
     `;
     bindLangSel();
-    if (isPublic) document.getElementById('back-btn').addEventListener('click', renderWorkerLogin);
-    document.querySelectorAll('.segment button').forEach((b) =>
-      b.addEventListener('click', () => {
-        state.boardMode = b.dataset.m;
-        isPublic ? renderPublicBoard() : renderBoard(false);
-      })
-    );
+    bindPayCard(renderWorker);
+    document.getElementById('show-pay')?.addEventListener('click', () => {
+      document.getElementById('pay-area').innerHTML = payCardHtml();
+      bindPayCard(renderWorker);
+    });
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await api('/api/logout', { method: 'POST' });
+      state.me = null;
+      renderAuth();
+    });
+    document.getElementById('p-save').addEventListener('click', async () => {
+      const err = document.getElementById('p-error');
+      err.textContent = '';
+      try {
+        await api('/api/profile', {
+          method: 'PUT',
+          body: {
+            name: document.getElementById('p-name').value,
+            email: document.getElementById('p-email').value,
+            password: document.getElementById('p-pw').value || undefined,
+            timezone: document.getElementById('p-tz').value,
+          },
+        });
+        state.me = await api('/api/me');
+        toast(t('saved'), 'success');
+        renderWorker();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+    document.querySelectorAll('.team-leave').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const row = b.closest('[data-org]');
+        const m = me.memberships.find((x) => String(x.orgId) === row.dataset.org);
+        if (!confirm(t('leaveTeamConfirm', m.orgName))) return;
+        try {
+          await api(`/api/my/memberships/${m.orgId}`, { method: 'DELETE' });
+          state.me = await api('/api/me');
+          renderWorker();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      }));
+  }
 
+  // ================================================================
+  //  BIZNES (oshxona)
+  // ================================================================
+  async function renderBusiness() {
+    stopTimers();
+    hideNav();
+    $app.className = 'wide';
+    const me = state.me;
+    $app.innerHTML = `
+      <div class="topbar">
+        ${brandHtml(me.org?.name || me.name)}
+        <div style="display:flex;gap:8px;align-items:center">
+          ${langSelHtml()}
+          <button class="chip gray" id="logout-btn">${t('logout')}</button>
+        </div>
+      </div>
+      ${subBannerHtml()}
+      <div class="tabs">
+        ${[['board', 'tabBoard'], ['calendar', 'tabCalendar'], ['team', 'tabTeam'], ['qr', 'tabQr'], ['profile', 'tabProfile']]
+          .map(([k, lk]) => `<button class="tab ${state.bizTab === k ? 'active' : ''}" data-tab="${k}">${t(lk)}</button>`).join('')}
+      </div>
+      <div id="tab-content"><div class="loading-screen" style="padding-top:80px"><div class="spinner"></div></div></div>
+    `;
+    bindLangSel();
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await api('/api/logout', { method: 'POST' });
+      state.me = null;
+      renderAuth();
+    });
+    document.querySelectorAll('.tab').forEach((tab) =>
+      tab.addEventListener('click', () => { state.bizTab = tab.dataset.tab; renderBusiness(); }));
+
+    const box = document.getElementById('tab-content');
     try {
-      if (state.boardMode === 'today') {
-        await renderBoardToday(container());
-        // Jonli yangilanish: har 60 soniyada
-        state.boardTimer = setInterval(async () => {
-          const el = container();
-          if (el) { try { await renderBoardToday(el); } catch {} }
-          else stopTimers();
-        }, 60_000);
-      } else {
-        await renderBoardMonth(container());
-      }
+      if (state.bizTab === 'board') await bizBoardTab(box);
+      else if (state.bizTab === 'calendar') await bizCalendarTab(box);
+      else if (state.bizTab === 'team') await bizTeamTab(box);
+      else if (state.bizTab === 'qr') await bizQrTab(box);
+      else await bizProfileTab(box);
     } catch (ex) {
-      container().innerHTML = `<div class="card"><p class="error-text">${esc(terr(ex))}</p></div>`;
+      if (ex.code === 'AUTH') return renderAuth();
+      box.innerHTML = `<div class="card"><p class="error-text">${esc(terr(ex))}</p></div>`;
     }
   }
 
-  async function renderBoardToday(box) {
-    const data = await api('/api/board');
-    const multi = data.branches.length > 1;
-    const branchChips = multi ? `
-      <div class="branch-chips">
-        <button class="branch-chip ${state.boardBranch === 0 ? 'active' : ''}" data-b="0">${t('all')}</button>
-        ${data.branches.map((b) => `<button class="branch-chip ${state.boardBranch === b.id ? 'active' : ''}" data-b="${b.id}">${esc(b.name)}</button>`).join('')}
-      </div>` : '';
-
-    const filtered = data.workers.filter((w) => !state.boardBranch || w.branchId === state.boardBranch);
-    const atWork = filtered.filter((w) => w.status === 'in').length;
-
-    const rowHtml = (w) => `
-      <div class="board-row ${w.status === 'in' ? 'working' : ''}">
-        <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
-        <div class="info">
-          <div class="name">${esc(w.name)}</div>
-          <div class="meta">
-            ${w.status === 'in' ? `<span class="status-tag in"><span class="pulse-dot"></span>${t('inTag')}</span> ${t('sinceTime', w.since)}`
-              : w.status === 'out' ? `<span class="status-tag out">${t('leftTag')}</span> ${t('arrivedTime', w.since)}`
-              : `<span class="status-tag none">${t('absentTag')}</span>`}
-          </div>
-        </div>
-        <div class="hours">
-          <div class="v">${fmtH(w.minutes)}</div>
-          <div class="l">${t('hToday')}</div>
-        </div>
-      </div>`;
-
-    let listHtml;
-    if (multi && !state.boardBranch) {
-      listHtml = data.branches.map((b) => {
-        const ws = filtered.filter((w) => w.branchId === b.id);
-        if (!ws.length) return '';
-        return `<div class="branch-title">${esc(b.name)}</div>` + ws.map(rowHtml).join('');
-      }).join('');
-    } else {
-      listHtml = filtered.map(rowHtml).join('');
-    }
-
+  async function bizBoardTab(box) {
+    const data = await api('/api/org/board');
+    const atWork = data.workers.filter((w) => w.status === 'in').length;
     box.innerHTML = `
       <div class="board-date">${dayTitle(data.date)} · ${data.time} · <b style="color:var(--green)">${t('atWorkCount', atWork)}</b></div>
-      ${branchChips}
-      ${listHtml || `<div class="card"><p class="muted">${t('noWorkers')}</p></div>`}
+      ${data.workers.length ? data.workers.map((w) => `
+        <div class="board-row ${w.status === 'in' ? 'working' : ''}" style="max-width:600px">
+          <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
+          <div class="info">
+            <div class="name">${esc(w.name)}</div>
+            <div class="meta">
+              ${w.status === 'in' ? `<span class="status-tag in"><span class="pulse-dot"></span>${t('inTag')}</span> ${t('sinceTime', w.since)}`
+                : w.status === 'out' ? `<span class="status-tag out">${t('leftTag')}</span> ${t('arrivedTime', w.since)}`
+                : `<span class="status-tag none">${t('absentTag')}</span>`}
+            </div>
+          </div>
+          <div class="hours"><div class="v">${fmtH(w.minutes)}</div><div class="l">${t('hToday')}</div></div>
+        </div>`).join('') : `<div class="card" style="max-width:600px"><p class="muted">${t('noMembers')}</p></div>`}
     `;
-    box.querySelectorAll('.branch-chip').forEach((c) =>
-      c.addEventListener('click', () => { state.boardBranch = +c.dataset.b; renderBoardToday(box); })
-    );
   }
 
-  async function renderBoardMonth(box) {
+  async function bizCalendarTab(box) {
     const { year, month } = currentMonth();
-    const data = await api(`/api/board/summary?year=${year}&month=${month}`);
-    box.innerHTML = summaryTableHtml(data, { editable: false });
-    bindSummaryTable(box, data, { editable: false, rerender: () => renderBoardMonth(box) });
-  }
-
-  // ---------- Oylik jadval (umumiy renderer: taxta va admin) ----------
-  function summaryTableHtml(data, { editable }) {
-    const { year, month } = data;
+    const data = await api(`/api/org/summary?year=${year}&month=${month}`);
     const daysInMonth = new Date(year, month, 0).getDate();
-    const multi = data.branches.length > 1;
-    const branch = editable ? state.adminBranch : state.boardBranch;
-    const workers = data.workers.filter((w) =>
-      (editable || w.active) && (!branch || w.branchId === branch));
-
-    const branchChips = multi ? `
-      <div class="branch-chips">
-        <button class="branch-chip ${branch === 0 ? 'active' : ''}" data-b="0">${t('all')}</button>
-        ${data.branches.map((b) => `<button class="branch-chip ${branch === b.id ? 'active' : ''}" data-b="${b.id}">${esc(b.name)}</button>`).join('')}
-      </div>` : '';
-
     const headCells = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const dow = new Date(year, month - 1, d).getDay();
       headCells.push(`<th class="${dow === 0 || dow === 6 ? 'wknd' : ''}">${d}<br><span style="font-weight:700;opacity:.75">${DOWS()[(dow + 6) % 7]}</span></th>`);
     }
-
-    const rows = workers.map((w) => {
+    const rows = data.workers.map((w) => {
       let cells = '';
       for (let d = 1; d <= daysInMonth; d++) {
         const date = `${year}-${pad(month)}-${pad(d)}`;
@@ -686,190 +1106,74 @@
         cells += `<td class="${cls}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${dd ? fmtH(dd.minutes) : '·'}</td>`;
       }
       return `<tr>
-        <td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}${w.active ? '' : `<span class="badge-inactive">${t('inactive')}</span>`}</td>
-        ${cells}
-        <td class="total-col">${fmtH(w.totalMinutes)}</td>
-      </tr>`;
+        <td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}</td>
+        ${cells}<td class="total-col">${fmtH(w.totalMinutes)}</td></tr>`;
     }).join('');
+    const grandTotal = data.workers.reduce((a, w) => a + w.totalMinutes, 0);
 
-    const grandTotal = workers.reduce((a, w) => a + w.totalMinutes, 0);
-    const title = LANG === 'ko' ? `${year}년 ${MONTHS()[month - 1]}` : `${MONTHS()[month - 1]} ${year}`;
-
-    return `
+    box.innerHTML = `
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:16px 18px">
-        <div class="cal-title">${title}</div>
+        <div class="cal-title">${calTitle(year, month)}</div>
         <div style="display:flex;align-items:center;gap:12px">
           <span class="muted">${t('grandTotal')}: <b style="color:var(--accent)">${fmtH(grandTotal)}</b> ${t('hUnit')}</span>
-          <div class="cal-nav">
-            <button id="cal-prev">‹</button>
-            <button id="cal-next">›</button>
-          </div>
+          <div class="cal-nav"><button id="cal-prev">‹</button><button id="cal-next">›</button></div>
         </div>
       </div>
-      ${branchChips}
-      ${workers.length ? `
+      ${data.workers.length ? `
       <div class="table-wrap">
         <table class="summary">
           <thead><tr><th class="name-col">${t('workerCol')}</th>${headCells.join('')}<th class="total-col">${t('totalCol')}</th></tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <p class="muted" style="margin:10px 4px 0">${editable ? t('tableHint') : t('boardMonthHint')}</p>
-      ` : `<div class="card"><p class="muted">${t('noWorkers')}</p></div>`}
+      <p class="muted" style="margin:10px 4px 0">${t('tableHint')}</p>
+      ` : `<div class="card"><p class="muted">${t('noMembers')}</p></div>`}
     `;
-  }
-
-  function bindSummaryTable(box, data, { editable, rerender }) {
-    bindCalendarNav(rerender);
-    box.querySelectorAll('.branch-chip').forEach((c) =>
-      c.addEventListener('click', () => {
-        if (editable) state.adminBranch = +c.dataset.b;
-        else state.boardBranch = +c.dataset.b;
-        rerender();
-      })
-    );
-    if (!editable) return;
+    bindCalendarNav(renderBusiness);
     box.querySelectorAll('td.day-cell').forEach((td) =>
-      td.addEventListener('click', () => openDayModal(+td.dataset.worker, td.dataset.name, td.dataset.date))
-    );
+      td.addEventListener('click', () => openOrgDayModal(+td.dataset.worker, td.dataset.name, td.dataset.date)));
     box.querySelectorAll('td.name-col').forEach((td) =>
-      td.addEventListener('click', () => openDayModal(+td.dataset.worker, td.dataset.name, todayStr()))
-    );
+      td.addEventListener('click', () => openOrgDayModal(+td.dataset.worker, td.dataset.name, todayStr())));
   }
 
-  // ================================================================
-  //  ADMIN
-  // ================================================================
-  function renderAdminLogin() {
-    stopTimers();
-    hideNav();
-    $app.className = 'no-nav';
-    $app.innerHTML = `
-      <div class="topbar">${brandHtml('Admin')}${langSelHtml()}</div>
-      <div class="card">
-        <h2>${t('adminTitle')}</h2>
-        <form id="admin-form">
-          <label>${t('adminPassword')}</label>
-          <input type="password" id="admin-pw" autocomplete="current-password">
-          <div class="error-text" id="admin-error"></div>
-          <button class="btn" type="submit" style="margin-top:4px">${t('signIn')}</button>
-        </form>
-      </div>
-      <button class="btn ghost" id="back-btn">${t('workerLogin')}</button>
-    `;
-    bindLangSel();
-    document.getElementById('back-btn').addEventListener('click', renderWorkerLogin);
-    document.getElementById('admin-pw').focus();
-    document.getElementById('admin-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const err = document.getElementById('admin-error');
-      err.textContent = '';
-      try {
-        const r = await api('/api/admin/login', { method: 'POST', body: { password: document.getElementById('admin-pw').value } });
-        state.me = { role: 'admin' };
-        state.month = null;
-        if (r.defaultPassword) toast(t('defaultPwWarn'), 'error', 6000);
-        renderAdmin();
-      } catch (ex) {
-        err.textContent = terr(ex);
-      }
-    });
-  }
-
-  async function renderAdmin() {
-    stopTimers();
-    hideNav();
-    $app.className = 'wide';
-    $app.innerHTML = `
-      <div class="topbar">
-        ${brandHtml('Admin')}
-        <div style="display:flex;gap:8px;align-items:center">
-          ${langSelHtml()}
-          <button class="chip gray" id="logout-btn">${t('logout')}</button>
-        </div>
-      </div>
-      <div class="tabs">
-        <button class="tab ${state.adminTab === 'calendar' ? 'active' : ''}" data-tab="calendar">${t('tabCalendar')}</button>
-        <button class="tab ${state.adminTab === 'workers' ? 'active' : ''}" data-tab="workers">${t('tabWorkers')}</button>
-        <button class="tab ${state.adminTab === 'branches' ? 'active' : ''}" data-tab="branches">${t('tabBranches')}</button>
-        <button class="tab ${state.adminTab === 'settings' ? 'active' : ''}" data-tab="settings">${t('tabSettings')}</button>
-      </div>
-      <div id="tab-content"><div class="loading-screen" style="padding-top:80px"><div class="spinner"></div></div></div>
-    `;
-    bindLangSel();
-    document.getElementById('logout-btn').addEventListener('click', async () => {
-      await api('/api/logout', { method: 'POST' });
-      state.me = null;
-      renderWorkerLogin();
-    });
-    document.querySelectorAll('.tab').forEach((tab) =>
-      tab.addEventListener('click', () => { state.adminTab = tab.dataset.tab; renderAdmin(); })
-    );
-
-    const box = document.getElementById('tab-content');
-    try {
-      if (state.adminTab === 'calendar') await adminCalendarTab(box);
-      else if (state.adminTab === 'workers') await adminWorkersTab(box);
-      else if (state.adminTab === 'branches') await adminBranchesTab(box);
-      else await adminSettingsTab(box);
-    } catch (ex) {
-      if (ex.code === 'AUTH_ADMIN') return renderAdminLogin();
-      box.innerHTML = `<div class="card"><p class="error-text">${esc(terr(ex))}</p></div>`;
-    }
-  }
-
-  // ---------- Admin: Kalendar ----------
-  async function adminCalendarTab(box) {
-    const { year, month } = currentMonth();
-    const data = await api(`/api/admin/summary?year=${year}&month=${month}`);
-    box.innerHTML = summaryTableHtml(data, { editable: true });
-    bindSummaryTable(box, data, { editable: true, rerender: renderAdmin });
-  }
-
-  // Kun tafsiloti + tahrirlash oynasi
-  async function openDayModal(workerId, name, date) {
+  async function openOrgDayModal(userId, name, date) {
     const [y, m] = date.split('-').map(Number);
-    const data = await api(`/api/admin/worker/${workerId}/summary?year=${y}&month=${m}`);
+    const data = await api(`/api/org/member/${userId}/summary?year=${y}&month=${m}`);
     const dd = data.days[date] || { sessions: [], minutes: 0, open: false };
-
     const modal = openModal(`
       <div class="modal-head">
         <h2 style="margin:0">${esc(name)} — ${dayTitle(date)}</h2>
         <button class="modal-close" id="m-close">✕</button>
       </div>
       <p class="muted">${t('dayTotal')}: <b style="color:var(--green)">${fmtH(dd.minutes)}</b> ${t('hUnit')}${dd.open ? ` <span style="color:var(--amber)">(${t('nowWorking')})</span>` : ''}</p>
-      <div id="m-sessions">
+      <div>
         ${dd.sessions.map((s) => `
           <div class="entry-edit-row" data-entry="${s.id}">
             <input type="time" class="e-in" value="${s.in}">
             <span>→</span>
             <input type="time" class="e-out" value="${s.out || ''}">
-            <button class="chip e-save" title="${t('save')}">💾</button>
-            <button class="chip red e-del" title="🗑">🗑</button>
+            <button class="chip e-save">💾</button>
+            <button class="chip red e-del">🗑</button>
           </div>`).join('') || `<p class="muted" style="padding:8px 0">${t('noRecords')}</p>`}
       </div>
       <div style="border-top:1.5px solid var(--line);margin-top:16px;padding-top:14px">
         <b style="font-size:14px">${t('manualAdd')}</b>
         <div class="entry-edit-row">
-          <input type="time" id="new-in">
-          <span>→</span>
-          <input type="time" id="new-out">
+          <input type="time" id="new-in"><span>→</span><input type="time" id="new-out">
           <button class="chip" id="new-add">${t('add')}</button>
         </div>
       </div>
       <div class="error-text" id="m-error"></div>
     `);
-
     const err = modal.querySelector('#m-error');
-    const refresh = () => { closeModal(); renderAdmin(); };
+    const refresh = () => { closeModal(); renderBusiness(); };
     modal.querySelector('#m-close').addEventListener('click', closeModal);
-
     modal.querySelectorAll('.entry-edit-row[data-entry]').forEach((row) => {
       const id = row.dataset.entry;
       row.querySelector('.e-save').addEventListener('click', async () => {
         err.textContent = '';
         try {
-          await api(`/api/admin/entries/${id}`, { method: 'PUT', body: { in: row.querySelector('.e-in').value, out: row.querySelector('.e-out').value || null } });
+          await api(`/api/org/entries/${id}`, { method: 'PUT', body: { in: row.querySelector('.e-in').value, out: row.querySelector('.e-out').value || null } });
           toast(t('saved'), 'success');
           refresh();
         } catch (ex) { err.textContent = terr(ex); }
@@ -877,19 +1181,18 @@
       row.querySelector('.e-del').addEventListener('click', async () => {
         if (!confirm(t('delEntryConfirm'))) return;
         try {
-          await api(`/api/admin/entries/${id}`, { method: 'DELETE' });
+          await api(`/api/org/entries/${id}`, { method: 'DELETE' });
           toast(t('deleted'), 'success');
           refresh();
         } catch (ex) { err.textContent = terr(ex); }
       });
     });
-
     modal.querySelector('#new-add').addEventListener('click', async () => {
       err.textContent = '';
       try {
-        await api('/api/admin/entries', {
+        await api('/api/org/entries', {
           method: 'POST',
-          body: { workerId, date, in: modal.querySelector('#new-in').value, out: modal.querySelector('#new-out').value || null },
+          body: { userId, date, in: modal.querySelector('#new-in').value, out: modal.querySelector('#new-out').value || null },
         });
         toast(t('added'), 'success');
         refresh();
@@ -897,116 +1200,57 @@
     });
   }
 
-  // ---------- Admin: Ishchilar ----------
-  async function adminWorkersTab(box) {
-    const [workers, branches] = await Promise.all([
-      api('/api/admin/workers'),
-      api('/api/branches'),
-    ]);
-    const branchName = (id) => branches.find((b) => b.id === id)?.name || '—';
-    const branchOptions = (sel) => branches.map((b) => `<option value="${b.id}" ${b.id === sel ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
-
+  async function bizTeamTab(box) {
+    const org = await api('/api/org');
+    const inviteUrl = `${location.origin}/join/${org.inviteToken}`;
     box.innerHTML = `
       <div class="card" style="max-width:600px">
-        <h2>${t('addWorker')}</h2>
-        <form id="add-form">
-          <div class="form-row">
-            <div><label>${t('fullName')}</label><input id="add-name" placeholder="${t('namePh')}"></div>
-            <div><label>${t('password')}</label><input id="add-pw" placeholder="${t('pwPh')}"></div>
-          </div>
-          ${branches.length > 1 ? `<label>${t('branch')}</label><select id="add-branch">${branchOptions(branches[0].id)}</select>` : ''}
-          <div class="error-text" id="add-error"></div>
-          <button class="btn" type="submit">${t('add')}</button>
-        </form>
+        <h2>${t('inviteTitle')}</h2>
+        <p class="muted">${t('inviteNote')}</p>
+        <div class="invite-box" id="invite-url">${esc(inviteUrl)}</div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn outline" id="invite-copy">${t('inviteCopy')}</button>
+          <button class="chip red" id="invite-rotate" style="padding:12px 16px">${t('inviteRotate')}</button>
+        </div>
       </div>
       <div class="card" style="max-width:600px">
-        <h2>${t('workersList', workers.length)}</h2>
-        ${workers.map((w) => `
-          <div class="worker-admin-row" data-id="${w.id}">
-            <span class="avatar" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span>
+        <h2>${t('members', org.members.length)}</h2>
+        ${org.members.length ? org.members.map((m) => `
+          <div class="worker-admin-row" data-id="${m.id}">
+            <span class="avatar" style="background:${avatarColor(m.name)}">${esc(initials(m.name))}</span>
             <div class="info">
-              <div class="name">${esc(w.name)}${w.active ? '' : `<span class="badge-inactive">${t('inactive')}</span>`}</div>
-              <div class="sub">${esc(branchName(w.branchId))}</div>
+              <div class="name">${esc(m.name)}</div>
+              <div class="sub">${esc(m.email)} · ${t('joinedAt', new Date(m.joinedAt).toLocaleDateString())}</div>
             </div>
-            <div class="actions">
-              <button class="chip w-pw">${t('changePw')}</button>
-              ${branches.length > 1 ? `<button class="chip w-branch">🏢</button>` : ''}
-              <button class="chip gray w-toggle">${w.active ? '⏸' : '▶'}</button>
-              <button class="chip red w-del">🗑</button>
-            </div>
-          </div>`).join('') || `<p class="muted">${t('noWorkers')}</p>`}
+            <button class="chip red m-remove">${t('removeMember')}</button>
+          </div>`).join('') : `<p class="muted">${t('noMembers')}</p>`}
       </div>
     `;
-
-    document.getElementById('add-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const err = document.getElementById('add-error');
-      err.textContent = '';
-      try {
-        await api('/api/admin/workers', {
-          method: 'POST',
-          body: {
-            name: document.getElementById('add-name').value,
-            password: document.getElementById('add-pw').value,
-            branchId: document.getElementById('add-branch')?.value,
-          },
-        });
-        toast(t('workerAdded'), 'success');
-        renderAdmin();
-      } catch (ex) { err.textContent = terr(ex); }
+    document.getElementById('invite-copy').addEventListener('click', () =>
+      navigator.clipboard.writeText(inviteUrl).then(() => toast(t('copied'), 'success')));
+    document.getElementById('invite-rotate').addEventListener('click', async () => {
+      if (!confirm(t('inviteRotateConfirm'))) return;
+      await api('/api/org/invite/rotate', { method: 'POST' });
+      renderBusiness();
     });
-
     box.querySelectorAll('.worker-admin-row').forEach((row) => {
-      const id = row.dataset.id;
-      const w = workers.find((x) => String(x.id) === id);
-      row.querySelector('.w-pw').addEventListener('click', () => {
-        const pw = prompt(t('pwPrompt', w.name));
-        if (pw === null) return;
-        api(`/api/admin/workers/${id}`, { method: 'PUT', body: { password: pw } })
-          .then(() => toast(t('pwChanged'), 'success'))
-          .catch((ex) => toast(terr(ex), 'error'));
-      });
-      row.querySelector('.w-branch')?.addEventListener('click', () => {
-        const modal = openModal(`
-          <div class="modal-head"><h2 style="margin:0">${esc(w.name)}</h2><button class="modal-close" id="m-close">✕</button></div>
-          <label>${t('chooseBranch')}</label>
-          <select id="b-select">${branchOptions(w.branchId)}</select>
-          <button class="btn" id="b-save" style="margin-top:16px">${t('save')}</button>
-        `);
-        modal.querySelector('#m-close').addEventListener('click', closeModal);
-        modal.querySelector('#b-save').addEventListener('click', async () => {
-          try {
-            await api(`/api/admin/workers/${id}`, { method: 'PUT', body: { branchId: modal.querySelector('#b-select').value } });
-            toast(t('branchChanged'), 'success');
-            closeModal();
-            renderAdmin();
-          } catch (ex) { toast(terr(ex), 'error'); }
-        });
-      });
-      row.querySelector('.w-toggle').addEventListener('click', async () => {
+      const m = org.members.find((x) => String(x.id) === row.dataset.id);
+      row.querySelector('.m-remove').addEventListener('click', async () => {
+        if (!confirm(t('removeMemberConfirm', m.name))) return;
         try {
-          await api(`/api/admin/workers/${id}`, { method: 'PUT', body: { active: !w.active } });
-          renderAdmin();
-        } catch (ex) { toast(terr(ex), 'error'); }
-      });
-      row.querySelector('.w-del').addEventListener('click', async () => {
-        if (!confirm(t('delWorkerConfirm', w.name))) return;
-        try {
-          await api(`/api/admin/workers/${id}`, { method: 'DELETE' });
+          await api(`/api/org/members/${m.id}`, { method: 'DELETE' });
           toast(t('deleted'), 'success');
-          renderAdmin();
+          renderBusiness();
         } catch (ex) { toast(terr(ex), 'error'); }
       });
     });
   }
 
-  // ---------- Admin: Filiallar va QR ----------
-  async function adminBranchesTab(box) {
-    const branches = await api('/api/admin/branches');
+  async function bizQrTab(box) {
+    const org = await api('/api/org');
     box.innerHTML = `
       <div class="card" style="max-width:600px">
         <h2>${t('addBranch')}</h2>
-        <p class="muted" style="margin-bottom:10px">${t('branchNote')}</p>
         <form id="add-branch-form">
           <div class="form-row">
             <input id="branch-name" placeholder="${t('branchPh')}">
@@ -1015,12 +1259,9 @@
           <div class="error-text" id="branch-error"></div>
         </form>
       </div>
-      ${branches.map((b) => `
+      ${org.branches.map((b) => `
         <div class="card qr-card" style="max-width:600px" data-id="${b.id}">
-          <div class="modal-head" style="margin-bottom:4px">
-            <h2 style="margin:0">🏢 ${esc(b.name)}</h2>
-            <span class="muted">${t('workersUnit', b.workers)}</span>
-          </div>
+          <div class="modal-head" style="margin-bottom:4px"><h2 style="margin:0">🏢 ${esc(b.name)}</h2></div>
           <div class="print-area" data-branch="${b.id}">
             <img src="${b.dataUrl}" alt="QR">
             <div class="pt">${esc(b.name)} — ${t('qrCaption')}</div>
@@ -1032,25 +1273,21 @@
             <button class="chip red b-del">🗑</button>
           </div>
         </div>`).join('')}
-      <p class="muted" style="max-width:600px">${t('qrRotateNote')}</p>
     `;
-
     document.getElementById('add-branch-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const err = document.getElementById('branch-error');
       err.textContent = '';
       try {
-        await api('/api/admin/branches', { method: 'POST', body: { name: document.getElementById('branch-name').value } });
-        toast(t('branchAdded'), 'success');
-        renderAdmin();
+        await api('/api/org/branches', { method: 'POST', body: { name: document.getElementById('branch-name').value } });
+        toast(t('added'), 'success');
+        renderBusiness();
       } catch (ex) { err.textContent = terr(ex); }
     });
-
     box.querySelectorAll('.card[data-id]').forEach((card) => {
       const id = card.dataset.id;
-      const b = branches.find((x) => String(x.id) === id);
+      const b = org.branches.find((x) => String(x.id) === id);
       card.querySelector('.b-print').addEventListener('click', () => {
-        // Faqat shu filial QR'i chop etilsin
         document.querySelectorAll('.print-area').forEach((p) => p.classList.toggle('hidden', p.dataset.branch !== id));
         window.print();
         document.querySelectorAll('.print-area').forEach((p) => p.classList.remove('hidden'));
@@ -1059,54 +1296,230 @@
         const name = prompt(t('branchNewName'), b.name);
         if (!name) return;
         try {
-          await api(`/api/admin/branches/${id}`, { method: 'PUT', body: { name } });
-          renderAdmin();
+          await api(`/api/org/branches/${id}`, { method: 'PUT', body: { name } });
+          renderBusiness();
         } catch (ex) { toast(terr(ex), 'error'); }
       });
       card.querySelector('.b-rotate').addEventListener('click', async () => {
-        if (!confirm(t('newQrConfirm', b.name))) return;
+        if (!confirm(t('newQrConfirm'))) return;
         try {
-          await api(`/api/admin/branches/${id}/qr/rotate`, { method: 'POST' });
-          toast(t('qrRotated'), 'success');
-          renderAdmin();
+          await api(`/api/org/branches/${id}/qr/rotate`, { method: 'POST' });
+          toast(t('saved'), 'success');
+          renderBusiness();
         } catch (ex) { toast(terr(ex), 'error'); }
       });
       card.querySelector('.b-del').addEventListener('click', async () => {
-        if (!confirm(t('delBranchConfirm', b.name))) return;
+        if (!confirm(t('delBranchConfirm'))) return;
         try {
-          await api(`/api/admin/branches/${id}`, { method: 'DELETE' });
+          await api(`/api/org/branches/${id}`, { method: 'DELETE' });
           toast(t('deleted'), 'success');
-          renderAdmin();
+          renderBusiness();
         } catch (ex) { toast(terr(ex), 'error'); }
       });
     });
   }
 
-  // ---------- Admin: Sozlamalar ----------
-  async function adminSettingsTab(box) {
-    const s = await api('/api/admin/settings');
-    const opts = TIMEZONES.map(([tz, label]) =>
-      `<option value="${tz}" ${tz === s.timezone ? 'selected' : ''}>${label} — ${tz}</option>`).join('');
-    const custom = TIMEZONES.some(([tz]) => tz === s.timezone) ? '' :
-      `<option value="${esc(s.timezone)}" selected>${esc(s.timezone)}</option>`;
+  async function bizProfileTab(box) {
+    const me = state.me;
+    const tzOpts = TIMEZONES.map(([tz, label]) =>
+      `<option value="${tz}" ${tz === me.timezone ? 'selected' : ''}>${label}</option>`).join('');
     box.innerHTML = `
       <div class="card" style="max-width:600px">
-        <h2>${t('settingsTitle')}</h2>
+        <h2>${t('subscription')}</h2>
+        <p class="muted">${me.active ? t('paidLeft', me.daysLeft) : t('subExpired')}</p>
+        <div id="pay-area">${me.active && !me.pendingPayment ? `<button class="btn outline" id="show-pay" style="margin-top:8px">${t('payTitle')}</button>` : payCardHtml()}</div>
+      </div>
+      <div class="card" style="max-width:600px">
+        <h2>${t('accountInfo')}</h2>
+        <label>${t('orgName')}</label>
+        <input id="p-orgname" value="${esc(me.org?.name || '')}">
+        <label>${t('yourName')}</label>
+        <input id="p-name" value="${esc(me.name)}">
+        <label>${t('email')}</label>
+        <input id="p-email" type="email" value="${esc(me.email)}">
+        <label>${t('changePassword')}</label>
+        <input id="p-pw" type="password" autocomplete="new-password">
         <label>${t('timezone')}</label>
-        <select id="tz-select">${custom}${opts}</select>
-        <p class="muted" style="margin-top:10px">${t('tzNote')}</p>
-        <div class="error-text" id="tz-error"></div>
-        <button class="btn" id="tz-save">${t('save')}</button>
+        <select id="p-tz">${tzOpts}</select>
+        <div class="error-text" id="p-error"></div>
+        <button class="btn" id="p-save">${t('save')}</button>
       </div>
     `;
-    document.getElementById('tz-save').addEventListener('click', async () => {
-      const err = document.getElementById('tz-error');
+    bindPayCard(renderBusiness);
+    document.getElementById('show-pay')?.addEventListener('click', () => {
+      document.getElementById('pay-area').innerHTML = payCardHtml();
+      bindPayCard(renderBusiness);
+    });
+    document.getElementById('p-save').addEventListener('click', async () => {
+      const err = document.getElementById('p-error');
       err.textContent = '';
       try {
-        await api('/api/admin/settings', { method: 'PUT', body: { timezone: document.getElementById('tz-select').value } });
+        const newOrgName = document.getElementById('p-orgname').value.trim();
+        if (newOrgName && newOrgName !== me.org?.name) {
+          await api('/api/org', { method: 'PUT', body: { name: newOrgName } });
+        }
+        await api('/api/profile', {
+          method: 'PUT',
+          body: {
+            name: document.getElementById('p-name').value,
+            email: document.getElementById('p-email').value,
+            password: document.getElementById('p-pw').value || undefined,
+            timezone: document.getElementById('p-tz').value,
+          },
+        });
+        state.me = await api('/api/me');
         toast(t('saved'), 'success');
+        renderBusiness();
       } catch (ex) { err.textContent = terr(ex); }
     });
+  }
+
+  // ================================================================
+  //  PLATFORMA ADMINI
+  // ================================================================
+  function renderPadminLogin() {
+    stopTimers();
+    hideNav();
+    $app.className = 'no-nav';
+    $app.innerHTML = `
+      <div class="topbar">${brandHtml('Admin')}${langSelHtml()}</div>
+      <div class="card">
+        <h2>${t('padminTitle')}</h2>
+        <form id="admin-form">
+          <label>${t('adminPassword')}</label>
+          <input type="password" id="admin-pw" autocomplete="current-password">
+          <div class="error-text" id="admin-error"></div>
+          <button class="btn" type="submit" style="margin-top:4px">${t('signIn')}</button>
+        </form>
+      </div>
+      <button class="btn ghost" id="back-btn">${t('workerLogin')}</button>
+    `;
+    bindLangSel();
+    document.getElementById('back-btn').addEventListener('click', () => renderAuth());
+    document.getElementById('admin-pw').focus();
+    document.getElementById('admin-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('admin-error');
+      err.textContent = '';
+      try {
+        const r = await api('/api/admin/login', { method: 'POST', body: { password: document.getElementById('admin-pw').value } });
+        if (r.defaultPassword) toast(t('defaultPwWarn'), 'error', 6000);
+        renderPadmin();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+  }
+
+  async function renderPadmin() {
+    stopTimers();
+    hideNav();
+    $app.className = 'wide';
+    let ov;
+    try {
+      ov = await api('/api/admin/overview');
+    } catch (ex) {
+      if (ex.code === 'AUTH_ADMIN') return renderPadminLogin();
+      toast(terr(ex), 'error');
+      return;
+    }
+    $app.innerHTML = `
+      <div class="topbar">
+        ${brandHtml(t('padminTitle'))}
+        <div style="display:flex;gap:8px;align-items:center">
+          ${langSelHtml()}
+          <button class="chip gray" id="logout-btn">${t('logout')}</button>
+        </div>
+      </div>
+      <div class="stat-row" style="max-width:600px">
+        <div class="stat"><div class="value">${ov.total}</div><div class="label">${t('padTotal')}</div></div>
+        <div class="stat"><div class="value">${ov.active}</div><div class="label">${t('padActive')}</div></div>
+        <div class="stat"><div class="value">${ov.business}</div><div class="label">${t('padBiz')}</div></div>
+        <div class="stat"><div class="value" style="color:${ov.pendingPayments ? 'var(--amber)' : 'inherit'}">${ov.pendingPayments}</div><div class="label">${t('padPending')}</div></div>
+      </div>
+      <div class="tabs">
+        <button class="tab ${state.padTab === 'payments' ? 'active' : ''}" data-tab="payments">${t('padPayments')}</button>
+        <button class="tab ${state.padTab === 'users' ? 'active' : ''}" data-tab="users">${t('padUsers')}</button>
+      </div>
+      <div id="tab-content"><div class="loading-screen" style="padding-top:60px"><div class="spinner"></div></div></div>
+    `;
+    bindLangSel();
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await api('/api/logout', { method: 'POST' });
+      renderAuth();
+    });
+    document.querySelectorAll('.tab').forEach((tab) =>
+      tab.addEventListener('click', () => { state.padTab = tab.dataset.tab; renderPadmin(); }));
+
+    const box = document.getElementById('tab-content');
+    if (state.padTab === 'payments') await padPaymentsTab(box);
+    else await padUsersTab(box);
+  }
+
+  async function padPaymentsTab(box) {
+    const list = await api('/api/admin/payments?status=pending');
+    box.innerHTML = list.length ? list.map((p) => `
+      <div class="card" style="max-width:600px" data-id="${p.id}">
+        <div class="modal-head" style="margin-bottom:4px">
+          <h2 style="margin:0">${esc(p.name)} <span class="muted" style="font-size:13px">(${p.type})</span></h2>
+          <b style="color:var(--accent)">₩${new Intl.NumberFormat().format(p.amount)}</b>
+        </div>
+        <p class="muted">${esc(p.email)} · ${new Date(p.createdAt).toLocaleString()}</p>
+        ${p.image ? `<img src="${p.image}" alt="chek" style="max-width:100%;max-height:340px;border-radius:12px;border:1.5px solid var(--line);margin-top:10px">` : ''}
+        ${p.link ? `<p style="margin-top:10px"><a href="${esc(p.link)}" target="_blank" rel="noopener">${esc(p.link)}</a></p>` : ''}
+        <div style="display:flex;gap:8px;margin-top:14px">
+          <button class="btn" style="background:var(--green)" data-act="approve">${t('padApprove')}</button>
+          <button class="btn red" data-act="reject">${t('padReject')}</button>
+        </div>
+      </div>`).join('') : `<div class="card" style="max-width:600px"><p class="muted">${t('padNoPayments')}</p></div>`;
+
+    box.querySelectorAll('[data-act]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const id = b.closest('[data-id]').dataset.id;
+        try {
+          await api(`/api/admin/payments/${id}/${b.dataset.act}`, { method: 'POST' });
+          toast(t('saved'), 'success');
+          renderPadmin();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      }));
+  }
+
+  async function padUsersTab(box) {
+    const q = state.padQuery || '';
+    const users = await api(`/api/admin/users?q=${encodeURIComponent(q)}`);
+    box.innerHTML = `
+      <div style="max-width:600px">
+        <input id="u-search" placeholder="${t('padSearch')}" value="${esc(q)}" style="margin-bottom:12px">
+        ${users.map((u) => `
+          <div class="card" style="padding:14px 16px" data-id="${u.id}">
+            <div class="worker-admin-row" style="border:none;padding:0">
+              <span class="avatar" style="background:${avatarColor(u.name)}">${esc(initials(u.name))}</span>
+              <div class="info">
+                <div class="name">${esc(u.name)} ${u.type === 'business' ? '🍽' : ''} ${u.active ? '' : `<span class="badge-inactive">${t('subExpired')}</span>`}</div>
+                <div class="sub">${esc(u.email)} · ${t('padUntil')}: ${new Date(u.paidUntil).toLocaleDateString()}</div>
+              </div>
+              <div class="actions">
+                <button class="chip" data-days="30">${t('padAddDays', 30)}</button>
+                <button class="chip" data-days="365">${t('padAddDays', 365)}</button>
+                <button class="chip red" data-days="-3660">✕</button>
+              </div>
+            </div>
+          </div>`).join('')}
+      </div>
+    `;
+    let timer;
+    document.getElementById('u-search').addEventListener('input', (e) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { state.padQuery = e.target.value; padUsersTab(box); }, 350);
+    });
+    document.getElementById('u-search').focus();
+    box.querySelectorAll('[data-days]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const id = b.closest('[data-id]').dataset.id;
+        try {
+          await api(`/api/admin/users/${id}`, { method: 'PUT', body: { addDays: +b.dataset.days } });
+          toast(t('saved'), 'success');
+          padUsersTab(box);
+        } catch (ex) { toast(terr(ex), 'error'); }
+      }));
   }
 
   // ================================================================
@@ -1116,12 +1529,18 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
+    const joinMatch = location.pathname.match(/^\/join\/([\w:.-]+)/);
+    if (joinMatch) state.joinToken = joinMatch[1];
+
     try {
       const me = await api('/api/me');
-      if (me.role === 'worker') { state.me = me; state.view = 'home'; return renderWorkerView(); }
-      if (me.role === 'admin') { state.me = me; return renderAdmin(); }
+      if (me.role === 'padmin') return renderPadmin();
+      if (me.role === 'user') {
+        state.me = me;
+        return afterAuth();
+      }
     } catch {}
-    renderWorkerLogin();
+    renderAuth(state.joinToken ? 'signup' : 'login');
   }
 
   boot();

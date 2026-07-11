@@ -121,6 +121,57 @@ label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); 
 }
 .sal-row:last-child { border-bottom: none; }
 .sal-row.net { font-size: 17px; font-weight: 800; }
+
+/* ---------- Akkaunt turi tanlash ---------- */
+.type-pick { display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
+.type-card {
+  display: block; padding: 14px 15px; border: 2px solid var(--line); border-radius: 15px;
+  cursor: pointer; margin: 0;
+}
+.type-card b { display: block; font-size: 15px; color: var(--text); }
+.type-card span { display: block; font-size: 12.5px; color: var(--muted); font-weight: 600; margin-top: 3px; }
+.type-card input { display: none; }
+.type-card:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---------- Obuna ---------- */
+.sub-banner {
+  padding: 11px 16px; border-radius: 14px; font-weight: 800; font-size: 13.5px;
+  margin-bottom: 14px; text-align: center;
+}
+.sub-banner.warn { background: var(--amber-soft); color: var(--amber); }
+.sub-banner.expired { background: var(--red-soft); color: var(--red); }
+
+.paywall { border: 2px solid var(--accent); }
+.bank-box {
+  background: var(--accent-soft); border-radius: 14px; padding: 14px 16px;
+  text-align: center; margin-top: 10px;
+}
+.bank-box .acc { font-size: 22px; font-weight: 800; letter-spacing: .5px; margin: 6px 0 10px; font-variant-numeric: tabular-nums; }
+.pay-preview { margin-top: 10px; text-align: center; }
+.pay-preview img { max-width: 100%; max-height: 240px; border-radius: 12px; border: 1.5px solid var(--line); }
+
+/* ---------- Moliya ---------- */
+.remain-card { border: 2px solid var(--green); }
+.fin-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 0; border-bottom: 1px solid var(--line);
+}
+.fin-row:last-child { border-bottom: none; }
+.fin-row .info { flex: 1; min-width: 0; }
+.fin-row .name { font-weight: 800; font-size: 14.5px; }
+.fin-row .sub { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-top: 1px; }
+.fin-row .sub.urgent { color: var(--red); font-weight: 800; }
+.fin-row .amt { font-variant-numeric: tabular-nums; color: var(--red); white-space: nowrap; }
+.fin-row .amt.plus { color: var(--green); }
+.fin-row .actions { display: flex; gap: 6px; }
+.fin-row.paid { opacity: .55; }
+
+/* ---------- Taklif havolasi ---------- */
+.invite-box {
+  background: var(--bg); border: 1.5px dashed var(--accent); border-radius: 12px;
+  padding: 12px 14px; font-size: 13px; font-weight: 700; word-break: break-all;
+  color: var(--accent); margin-top: 8px;
+}
 .chip.red { background: var(--red-soft); color: var(--red); }
 .chip.gray { background: #eceef6; color: var(--muted); }
 

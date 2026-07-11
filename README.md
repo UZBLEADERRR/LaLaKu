@@ -1,51 +1,60 @@
-# ⏱ LaLaKu Vaqt — QR kod orqali ish vaqtini hisoblash
+# ⏱ LaLaKu Vaqt — ish vaqti va moliya SaaS platformasi
 
-Ishchilar ishga kelganda va ketganda QR kodni skanerlaydi — vaqt minutigacha avtomatik yoziladi.
-Oylik kalendarda har bir kun va jami ishlangan soatlar ko'rinib turadi.
+Koreyada ishlaydiganlar uchun: ish vaqtini hisoblash, jonli maosh hisobi (soliq ayrilgan holda),
+qarz-chiqimlar nazorati va oshxonalar uchun jamoa boshqaruvi. 3 tilda: o'zbek / English / 한국어.
 
-## Imkoniyatlar
+## Akkaunt turlari
 
-**Ishchi uchun:**
-- Ismini tanlab, parol bilan kiradi
-- «Ishga keldim» → QR skanerlash → kelish vaqti yoziladi
-- «Ketish» → QR skanerlash → ketish vaqti yoziladi (tungi smena ham ishlaydi)
-- Oylik kalendar: har kun necha soat ishlagani, oy jami
-- Soatlik maosh va soliq foizini kiritib, oylik daromadni avtomatik hisoblash
-- Til tanlash: o'zbek / ingliz / koreys
-- Telefonga ilova sifatida o'rnatiladi (PWA)
+**👷 Ishchi — ₩990/oy** (7 kun bepul sinov)
+- QR skanerlash (jamoada bo'lsa) yoki qo'lda «boshladim/tugatdim» tugmasi
+- Soatlik **yoki kunlik** maosh + soliq foizi → oylik daromad jonli hisoblanadi
+- 💳 Moliya: qarzlar, doimiy chiqimlar (uy, sug'urta...), qo'shimcha daromadlar —
+  muddat eslatmalari va «oy oxirida qancha qoladi» hisobi
+- 🔮 Oylik prognoz: taxminiy kun/soat kiritib bo'lajak maoshni ko'rish
+- 📋 Ish vaqtlari ro'yxatini nusxalash (boshliqqa SMS orqali yuborish uchun)
+- Oylik kalendar, tungi smena (17:30→01:00) to'g'ri hisoblanadi
 
-**Admin uchun:**
-- Ishchilarni qo'shish, parol berish/almashtirish, nofaol qilish, o'chirish
-- Oylik kalendar: **barcha ishchilar × kunlar** jadvali, har birining jami soati, umumiy soat
-- Katakni bosib kun tafsilotini ko'rish, vaqtni tahrirlash, qo'lda yozuv qo'shish (skaner unutilgan kunlar uchun)
-- Ish joyi QR kodini chop etish va yangilash
+**🍽 Oshxona / Biznes — ₩2 900/oy** (7 kun bepul sinov)
+- Filiallar, har biriga chop etiladigan QR kod
+- 🔗 **Taklif havolasi**: ishchiga yuborasiz → u ro'yxatdan o'tib jamoaga qo'shiladi
+- Jamoani boshqarish: chiqarish, vaqtlarini tahrirlash, qo'lda yozuv qo'shish
+- Bugungi jonli davomat va oylik jadval (barcha ishchilar × kunlar, jami soatlar)
+
+## To'lov tizimi
+
+Foydalanuvchi 토스뱅크 (Toss Bank) **1000-8922-1696** hisobiga o'tkazma qiladi,
+ilovada skrinshot yoki to'lov havolasini yuboradi. Platforma egasi **admin panelda**
+to'lovni ko'rib chiqib tasdiqlaydi — obuna +30 kunga uzayadi.
+
+Admin panel: bosh sahifadagi «Platforma admini» tugmasi, parol — `ADMIN_PASSWORD` env.
+U yerda: kutilayotgan to'lovlar (chek rasmi bilan), foydalanuvchilar ro'yxati,
+qo'lda muddat qo'shish (+30/+365 kun) yoki o'chirish.
 
 ## Railway'ga o'rnatish
 
-1. Railway'da yangi loyiha yarating va bu GitHub repo'ni ulang
-2. **PostgreSQL** qo'shing: `+ New` → `Database` → `PostgreSQL`
-3. Ilova servisiga env o'zgaruvchilar qo'shing:
-   - `DATABASE_URL` → `${{Postgres.DATABASE_URL}}` (Railway reference)
-   - `ADMIN_PASSWORD` → o'zingizning maxfiy admin parolingiz
+1. Railway'da yangi loyiha → bu GitHub repo'ni ulang
+2. `+ New` → `Database` → **PostgreSQL**
+3. Ilova servisiga env:
+   - `DATABASE_URL` → `${{Postgres.DATABASE_URL}}`
+   - `ADMIN_PASSWORD` → platforma admin paroli (siz uchun)
    - `NODE_ENV` → `production`
-   - Vaqt zonasi admin paneldagi «Sozlamalar» bo'limidan tanlanadi (masalan Asia/Seoul)
-4. Deploy bo'lgach, domen oching: `Settings` → `Networking` → `Generate Domain`
+4. `Settings` → `Networking` → `Generate Domain`
 
-> Kamera (QR skaner) faqat HTTPS'da ishlaydi — Railway domenlari avtomatik HTTPS bo'ladi.
+> Standart vaqt zonasi — `Asia/Seoul`. Har bir foydalanuvchi profilida o'zi o'zgartira oladi.
 
-## Birinchi ishga tushirish
+## APK / telefon ilovasi
 
-1. Saytga kiring → «Admin panelga kirish» → admin parol bilan kiring
-2. «Ishchilar» bo'limida ishchilarni qo'shing (ism + parol)
-3. «QR kod» bo'limida QR kodni chop etib, ish joyiga osing
-4. Ishchi telefonida saytni ochadi → ismini tanlaydi → parolini kiritadi → QR skanerlaydi
+PWA: Chrome'da ochib «Bosh ekranga qo'shish» — ilova kabi o'rnatiladi.
+Haqiqiy APK kerak bo'lsa: [PWABuilder](https://www.pwabuilder.com) ga domenni kiriting.
 
-## APK (Android ilova)
+## Texnologiyalar
 
-Ilova PWA — Android'da Chrome orqali ochib **«Bosh ekranga qo'shish»** deyilsa, oddiy ilova kabi o'rnatiladi va ishlaydi.
-
-Haqiqiy APK fayl kerak bo'lsa (masalan Play Store uchun), [PWABuilder](https://www.pwabuilder.com) saytiga
-Railway domeningizni kiriting — u tayyor APK yasab beradi (ilova PWA talablariga to'liq mos: manifest, service worker, ikonkalar bor).
+- Node.js + Express + PostgreSQL (`pg`)
+- Vanilla JS SPA + PWA, jsQR (kamera skaneri), `qrcode` (QR yaratish)
+- bcrypt parollar, HMAC-imzoli sessiya cookie, login rate-limit
+- Vaqtlar UTC'da saqlanadi, har bir foydalanuvchining o'z vaqt zonasida ko'rsatiladi
+- Eski (v1) versiya ma'lumotlari avtomatik ko'chiriladi: ishchilar
+  `ism.familiya@lalaku.local` email bilan akkauntga aylanadi (parollari o'sha-o'sha)
 
 ## Lokal ishga tushirish
 
@@ -54,12 +63,3 @@ npm install
 DATABASE_URL=postgres://user:pass@localhost:5432/lalaku npm start
 # http://localhost:3000
 ```
-
-## Texnologiyalar
-
-- **Backend:** Node.js + Express + PostgreSQL (`pg`)
-- **Frontend:** vanilla JS SPA, PWA (service worker, manifest)
-- **QR skaner:** jsQR (kamera orqali, kutubxona lokal joylashgan)
-- **QR yaratish:** `qrcode` (server tomonda)
-- Parollar `bcrypt` bilan xeshlanadi, sessiyalar HMAC-imzoli cookie'da
-- Vaqtlar UTC'da saqlanadi, `Asia/Tashkent` bo'yicha ko'rsatiladi
