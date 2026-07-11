@@ -38,6 +38,48 @@
     });
   }
 
+  // ---------- Mavzu ----------
+  const THEMES = ['classic', 'kakao', 'mint', 'dark'];
+  let THEME = localStorage.getItem('lalaku_theme') || 'classic';
+  if (!THEMES.includes(THEME)) THEME = 'classic';
+  function applyTheme() {
+    document.documentElement.dataset.theme = THEME;
+    document.querySelector('meta[name=theme-color]')?.setAttribute('content',
+      { classic: '#5b5bd6', kakao: '#FEE500', mint: '#0d9488', dark: '#12141f' }[THEME]);
+  }
+  applyTheme();
+
+  function themePickerHtml() {
+    return `<div class="card"><h2>${t('theme')}</h2>
+      <div class="theme-row">
+        ${THEMES.map((th) => `
+          <button class="theme-chip ${th === THEME ? 'active' : ''}" data-theme-pick="${th}">
+            <span class="dot dot-${th}"></span>${t('theme' + th[0].toUpperCase() + th.slice(1))}
+          </button>`).join('')}
+      </div></div>`;
+  }
+  function bindThemePicker(rerender) {
+    document.querySelectorAll('[data-theme-pick]').forEach((b) =>
+      b.addEventListener('click', () => {
+        THEME = b.dataset.themePick;
+        localStorage.setItem('lalaku_theme', THEME);
+        applyTheme();
+        rerender();
+      }));
+  }
+
+  // ---------- Joylashuv (geofence uchun) ----------
+  function getLoc(timeoutMs = 7000) {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) return resolve({});
+      navigator.geolocation.getCurrentPosition(
+        (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
+        () => resolve({}),
+        { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 30000 }
+      );
+    });
+  }
+
   const ICONS = {
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>',
     calendar: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="3"/><path d="M8 3v4M16 3v4M3.5 10.5h17"/></svg>',
@@ -119,14 +161,52 @@
     if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
   }
 
-  // Ish haqi hisobi (soatlik yoki kunlik)
-  function earnings(totalMinutes, daysWorked) {
+  // Ish haqi hisobi: har bir ish joyi (job) o'z stavkasi bilan,
+  // jobsiz yozuvlar profil stavkasida hisoblanadi
+  function computeEarnings(summary, jobs) {
     const me = state.me;
-    const gross = me.payType === 'daily'
-      ? daysWorked * (me.dailyRate || 0)
-      : (totalMinutes / 60) * (me.hourlyRate || 0);
-    const tax = gross * (me.taxPercent || 0) / 100;
-    return { gross, tax, net: gross - tax, hasRate: me.payType === 'daily' ? me.dailyRate > 0 : me.hourlyRate > 0 };
+    const agg = new Map(); // jobId (0 = umumiy) -> {minutes, days}
+    for (const [date, d] of Object.entries(summary.days)) {
+      for (const sess of d.sessions) {
+        const k = sess.jobId || 0;
+        if (!agg.has(k)) agg.set(k, { minutes: 0, days: new Set() });
+        const a = agg.get(k);
+        a.minutes += sess.minutes;
+        a.days.add(date);
+      }
+    }
+    let gross = 0, tax = 0, hasRate = false;
+    const parts = [];
+    for (const [k, a] of agg) {
+      const job = jobs.find((j) => j.id === k);
+      const payType = job ? job.payType : me.payType;
+      const rate = job ? job.rate : (me.payType === 'daily' ? me.dailyRate : me.hourlyRate);
+      const taxP = job ? job.taxPercent : me.taxPercent;
+      if (rate > 0) hasRate = true;
+      const g = payType === 'daily' ? a.days.size * rate : (a.minutes / 60) * rate;
+      gross += g;
+      tax += g * taxP / 100;
+      parts.push({ name: job ? job.name : t('personal'), gross: g });
+    }
+    if (!agg.size) {
+      hasRate = (me.payType === 'daily' ? me.dailyRate : me.hourlyRate) > 0 || jobs.some((j) => j.rate > 0);
+    }
+    return { gross, tax, net: gross - tax, hasRate, parts };
+  }
+
+  // Kalendarni bitta ish joyi bo'yicha filtrlash
+  function filterSummary(summary, jobId) {
+    if (!jobId) return summary;
+    const days = {};
+    let totalMinutes = 0;
+    for (const [date, d] of Object.entries(summary.days)) {
+      const sessions = d.sessions.filter((x) => (x.jobId || 0) === jobId);
+      if (!sessions.length) continue;
+      const minutes = sessions.reduce((a, x) => a + x.minutes, 0);
+      days[date] = { sessions, minutes, open: sessions.some((x) => !x.out) };
+      totalMinutes += minutes;
+    }
+    return { ...summary, days, totalMinutes, daysWorked: Object.keys(days).length };
   }
 
   // ---------- Navigatsiya (ishchi) ----------
@@ -268,7 +348,7 @@
           <input id="auth-pw" type="password" autocomplete="${mode === 'signup' ? 'new-password' : 'current-password'}">
           <div class="error-text" id="auth-error"></div>
           <button class="btn" type="submit">${mode === 'signup' ? t('signUp') : t('signIn')}</button>
-          ${mode === 'signup' ? `<p class="muted" style="text-align:center;margin-top:10px;font-size:13px">${t('trialNote', 7)}</p>` : ''}
+          ${mode === 'signup' ? `<p class="muted" style="text-align:center;margin-top:10px;font-size:13px">${t('trialNote', 15)}</p>` : ''}
         </form>
       </div>
       <button class="btn ghost" id="auth-switch">${mode === 'signup' ? t('haveAccount') : t('noAccount')}</button>
@@ -421,40 +501,58 @@
   async function renderWorkerHome() {
     const now = new Date();
     const year = now.getFullYear(), month = now.getMonth() + 1;
-    let status, summary;
+    let status, summary, jobs;
     try {
-      [status, summary] = await Promise.all([
+      [status, summary, jobs] = await Promise.all([
         api('/api/my/status'),
         api(`/api/my/summary?year=${year}&month=${month}`),
+        api('/api/jobs'),
       ]);
     } catch (ex) {
       if (ex.code === 'AUTH') return renderAuth();
       toast(terr(ex), 'error');
       return;
     }
+    state.jobs = jobs;
 
     const me = state.me;
     const today = todayStr();
     const todayData = summary.days[today];
     const todayMin = todayData ? todayData.minutes : 0;
-    const hasTeam = me.memberships.length > 0;
-    const e = earnings(summary.totalMinutes, summary.daysWorked);
+    const e = computeEarnings(summary, jobs);
+
+    const personalJobs = jobs.filter((j) => !j.orgId && j.active);
+    const savedJob = +(localStorage.getItem('lalaku_job') || 0);
+    state.punchJob = personalJobs.some((j) => j.id === savedJob) ? savedJob : (personalJobs[0]?.id || null);
+
+    const qrTeams = me.memberships.filter((m) => m.checkMode !== 'button');
+    const btnTeams = me.memberships.filter((m) => m.checkMode === 'button');
 
     let actionHtml;
     if (!me.active) {
       actionHtml = payCardHtml();
-    } else if (hasTeam) {
-      actionHtml = `
-        <button class="scan-btn ${status.checkedIn ? 'leave' : 'arrive'}" id="scan-btn">
-          ${ICONS.scan}
-          ${status.checkedIn ? t('checkoutBtn') : t('checkinBtn')}
-        </button>
-        <button class="btn ghost" id="punch-btn" style="margin-top:-6px;margin-bottom:12px;font-size:13.5px">${t('manualLink')}</button>`;
+    } else if (status.checkedIn) {
+      // Tugatish: QR-rejimli jamoada skanerlash, aks holda oddiy tugma
+      actionHtml = (status.orgId && status.orgCheckMode === 'qr')
+        ? `<button class="scan-btn leave" id="scan-btn">${ICONS.scan} ${t('checkoutBtn')}</button>`
+        : `<button class="scan-btn leave" id="punch-btn">${t('punchOut')}</button>`;
     } else {
-      actionHtml = `
-        <button class="scan-btn ${status.checkedIn ? 'leave' : 'arrive'}" id="punch-btn">
-          ${status.checkedIn ? t('punchOut') : t('punchIn')}
-        </button>`;
+      const bits = [];
+      if (qrTeams.length) {
+        bits.push(`<button class="scan-btn arrive" id="scan-btn">${ICONS.scan} ${t('checkinBtn')}</button>`);
+      }
+      for (const bt of btnTeams) {
+        bits.push(`<button class="scan-btn arrive" data-orgpunch="${bt.orgId}">${t('startTeam', esc(bt.orgName))}</button>`);
+      }
+      const jobChips = personalJobs.length > 1 ? `
+        <div class="branch-chips" id="job-chips">
+          ${personalJobs.map((j) => `<button class="branch-chip ${state.punchJob === j.id ? 'active' : ''}" data-job="${j.id}">${esc(j.name)}</button>`).join('')}
+        </div>` : '';
+      const personalLabel = personalJobs.length === 1 ? `${t('punchIn')} · ${esc(personalJobs[0].name)}` : t('punchIn');
+      bits.push(jobChips + (me.memberships.length
+        ? `<button class="btn ghost" id="punch-btn" style="margin-top:-4px;margin-bottom:12px;font-size:13.5px">${personalLabel}</button>`
+        : `<button class="scan-btn arrive" id="punch-btn">${personalLabel}</button>`));
+      actionHtml = bits.join('');
     }
 
     $app.innerHTML = `
@@ -485,10 +583,10 @@
       ${todayData ? `
       <div class="card">
         <h2>${t('todaySessions')}</h2>
-        ${todayData.sessions.map((s) => `
+        ${todayData.sessions.map((sess) => `
           <div class="session-row">
-            <span class="times">${s.in} → ${s.out || `<span style="color:var(--green)">${t('working')}</span>`}</span>
-            <span class="dur">${fmtH(s.minutes)} ${t('hUnit')}</span>
+            <span class="times">${sess.in} → ${sess.out || `<span style="color:var(--green)">${t('working')}</span>`}</span>
+            <span class="dur">${fmtH(sess.minutes)} ${t('hUnit')}</span>
           </div>`).join('')}
       </div>` : ''}
     `;
@@ -499,7 +597,7 @@
 
     if (status.checkedIn && status.sinceIso) {
       const started = new Date(status.sinceIso);
-      const closedBefore = todayData ? todayData.sessions.filter((s) => s.out).reduce((a, s) => a + s.minutes, 0) : 0;
+      const closedBefore = todayData ? todayData.sessions.filter((x) => x.out).reduce((a, x) => a + x.minutes, 0) : 0;
       const upd = () => {
         const mins = Math.max(0, Math.floor((Date.now() - started) / 60_000));
         const el = document.getElementById('status-time');
@@ -509,6 +607,13 @@
       state.timerId = setInterval(upd, 15_000);
     }
 
+    document.querySelectorAll('#job-chips .branch-chip').forEach((c) =>
+      c.addEventListener('click', () => {
+        state.punchJob = +c.dataset.job;
+        localStorage.setItem('lalaku_job', state.punchJob);
+        document.querySelectorAll('#job-chips .branch-chip').forEach((x) => x.classList.toggle('active', x === c));
+      }));
+
     const doAction = async (fn) => {
       try {
         const r = await fn();
@@ -516,10 +621,25 @@
         renderWorker();
       } catch (ex) { toast(terr(ex), 'error', 4500); }
     };
-    document.getElementById('scan-btn')?.addEventListener('click', () =>
-      scanner.open((code) => doAction(() => api('/api/scan', { method: 'POST', body: { code } }))));
-    document.getElementById('punch-btn')?.addEventListener('click', () =>
-      doAction(() => api('/api/punch', { method: 'POST' })));
+
+    document.getElementById('scan-btn')?.addEventListener('click', async () => {
+      const loc = await getLoc();
+      scanner.open((code) => doAction(() => api('/api/scan', { method: 'POST', body: { code, ...loc } })));
+    });
+
+    document.querySelectorAll('[data-orgpunch]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const loc = await getLoc();
+        doAction(() => api('/api/punch', { method: 'POST', body: { orgId: +b.dataset.orgpunch, ...loc } }));
+      }));
+
+    document.getElementById('punch-btn')?.addEventListener('click', async () => {
+      // Jamoa yozuvini yopishda joylashuv kerak bo'lishi mumkin
+      const needLoc = status.checkedIn && status.orgId;
+      const loc = needLoc ? await getLoc() : {};
+      const body = status.checkedIn ? { ...loc } : { jobId: state.punchJob, ...loc };
+      doAction(() => api('/api/punch', { method: 'POST', body }));
+    });
   }
 
   // ---------- Maosh kartasi ----------
@@ -531,10 +651,14 @@
         <p class="muted">${t('salaryHint')}</p>
       </div>`;
     }
+    const partRows = e.parts.length > 1
+      ? e.parts.map((p) => `<div class="sal-row"><span class="muted">· ${esc(p.name)}</span><span>${fmtMoney(p.gross)}</span></div>`).join('')
+      : '';
     return `<div class="card">
       <div class="modal-head" style="margin-bottom:6px"><h2 style="margin:0">${t('salary')}</h2>${gearBtn}</div>
+      ${partRows}
       <div class="sal-row"><span class="muted">${t('gross')}</span><b>${fmtMoney(e.gross)}</b></div>
-      ${e.tax > 0 ? `<div class="sal-row"><span class="muted">${t('taxLabel', state.me.taxPercent)}</span><b style="color:var(--red)">−${fmtMoney(e.tax)}</b></div>` : ''}
+      ${e.tax > 0 ? `<div class="sal-row"><span class="muted">${t('taxLabel', Math.round(e.tax / e.gross * 1000) / 10)}</span><b style="color:var(--red)">−${fmtMoney(e.tax)}</b></div>` : ''}
       <div class="sal-row net"><span>${t('net')}</span><b style="color:var(--green)">${fmtMoney(e.net)}</b></div>
     </div>`;
   }
@@ -594,18 +718,29 @@
   // ---------- Kalendar (ishchi) ----------
   async function renderMyCalendar() {
     const { year, month } = currentMonth();
-    let summary;
+    let fullSummary, jobs;
     try {
-      summary = await api(`/api/my/summary?year=${year}&month=${month}`);
+      [fullSummary, jobs] = await Promise.all([
+        api(`/api/my/summary?year=${year}&month=${month}`),
+        api('/api/jobs'),
+      ]);
     } catch (ex) {
       if (ex.code === 'AUTH') return renderAuth();
       toast(terr(ex), 'error');
       return;
     }
-    const e = earnings(summary.totalMinutes, summary.daysWorked);
+    if (!jobs.some((j) => j.id === state.calJob)) state.calJob = 0;
+    const summary = filterSummary(fullSummary, state.calJob);
+    const e = computeEarnings(summary, jobs);
+    const jobChips = jobs.length ? `
+      <div class="branch-chips">
+        <button class="branch-chip ${!state.calJob ? 'active' : ''}" data-caljob="0">${t('all')}</button>
+        ${jobs.map((j) => `<button class="branch-chip ${state.calJob === j.id ? 'active' : ''}" data-caljob="${j.id}">${esc(j.name)}</button>`).join('')}
+      </div>` : '';
 
     $app.innerHTML = `
       <div class="topbar">${brandHtml(state.me.name)}${langSelHtml()}</div>
+      ${jobChips}
       <div class="stat-row">
         <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthHours', MONTHS()[month - 1])}</div></div>
         <div class="stat"><div class="value">${summary.daysWorked}</div><div class="label">${t('daysWorked')}</div></div>
@@ -622,6 +757,8 @@
     bindLangSel();
     bindSalaryCard(renderWorker);
     bindCalendarNav(renderWorker);
+    document.querySelectorAll('[data-caljob]').forEach((c) =>
+      c.addEventListener('click', () => { state.calJob = +c.dataset.caljob; renderWorker(); }));
     bindCalendarCells((date) => {
       state.selectedDay = state.selectedDay === date ? null : date;
       const det = document.getElementById('day-detail');
@@ -719,11 +856,12 @@
   async function renderFinance() {
     const now = new Date();
     const year = now.getFullYear(), month = now.getMonth() + 1;
-    let items, summary;
+    let items, summary, jobs;
     try {
-      [items, summary] = await Promise.all([
+      [items, summary, jobs] = await Promise.all([
         api('/api/finance'),
         api(`/api/my/summary?year=${year}&month=${month}`),
+        api('/api/jobs'),
       ]);
     } catch (ex) {
       if (ex.code === 'AUTH') return renderAuth();
@@ -731,7 +869,7 @@
       return;
     }
 
-    const e = earnings(summary.totalMinutes, summary.daysWorked);
+    const e = computeEarnings(summary, jobs);
     const act = items.filter((i) => i.active);
     const incomes = act.filter((i) => i.kind === 'income').reduce((a, i) => a + i.amount, 0);
     const expenses = act.filter((i) => i.kind === 'expense').reduce((a, i) => a + i.amount, 0);
@@ -935,6 +1073,24 @@
   // ---------- Profil (ishchi) ----------
   async function renderProfile() {
     const me = state.me;
+    let jobs = [];
+    try { jobs = await api('/api/jobs'); } catch {}
+    const jobsCard = `
+      <div class="card">
+        <div class="modal-head" style="margin-bottom:6px"><h2 style="margin:0">${t('myJobs')}</h2><button class="chip" id="job-add">${t('addJob')}</button></div>
+        <p class="muted" style="margin-bottom:6px;font-size:13px">${t('jobsNote')}</p>
+        ${jobs.map((j) => `
+          <div class="fin-row" data-job-row="${j.id}">
+            <div class="info">
+              <div class="name">${esc(j.name)}${j.orgId ? ` <span class="badge-inactive" style="background:var(--accent-soft);color:var(--accent)">${t('teamTag')}</span>` : ''}</div>
+              <div class="sub">${j.payType === 'daily' ? t('payDaily') : t('payHourly')} · ${fmtMoney(j.rate)}${j.taxPercent ? ` · −${j.taxPercent}%` : ''}</div>
+            </div>
+            <div class="actions">
+              <button class="chip j-edit">✏️</button>
+              ${j.orgId ? '' : '<button class="chip red j-del">🗑</button>'}
+            </div>
+          </div>`).join('')}
+      </div>`;
     const tzOpts = TIMEZONES.map(([tz, label]) =>
       `<option value="${tz}" ${tz === me.timezone ? 'selected' : ''}>${label}</option>`).join('');
     const tzCustom = TIMEZONES.some(([tz]) => tz === me.timezone) ? '' :
@@ -955,6 +1111,9 @@
         <p class="muted">${me.active ? t(me.daysLeft > 7 ? 'paidLeft' : 'trialLeft', me.daysLeft) : t('subExpired')}</p>
         <div id="pay-area">${me.active && !me.pendingPayment ? `<button class="btn outline" id="show-pay" style="margin-top:8px">${t('payTitle')}</button>` : payCardHtml()}</div>
       </div>
+
+      ${jobsCard}
+      ${themePickerHtml()}
 
       <div class="card">
         <h2>${t('accountInfo')}</h2>
@@ -982,9 +1141,23 @@
     `;
     bindLangSel();
     bindPayCard(renderWorker);
+    bindThemePicker(renderWorker);
     document.getElementById('show-pay')?.addEventListener('click', () => {
       document.getElementById('pay-area').innerHTML = payCardHtml();
       bindPayCard(renderWorker);
+    });
+    document.getElementById('job-add').addEventListener('click', () => openJobModal(null));
+    document.querySelectorAll('[data-job-row]').forEach((row) => {
+      const job = jobs.find((j) => String(j.id) === row.dataset.jobRow);
+      row.querySelector('.j-edit').addEventListener('click', () => openJobModal(job));
+      row.querySelector('.j-del')?.addEventListener('click', async () => {
+        if (!confirm(t('delEntryConfirm'))) return;
+        try {
+          await api(`/api/jobs/${job.id}`, { method: 'DELETE' });
+          toast(t('deleted'), 'success');
+          renderWorker();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
     });
     document.getElementById('logout-btn').addEventListener('click', async () => {
       await api('/api/logout', { method: 'POST' });
@@ -1020,6 +1193,50 @@
           renderWorker();
         } catch (ex) { toast(terr(ex), 'error'); }
       }));
+  }
+
+  // Ish joyi qo'shish/tahrirlash oynasi
+  function openJobModal(job) {
+    let payType = job?.payType || 'hourly';
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${job ? esc(job.name) : t('addJob')}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <label>${t('jobName')}</label>
+      <input id="j-name" value="${job ? esc(job.name) : ''}" placeholder="${t('jobNamePh')}" ${job?.orgId ? 'disabled' : ''}>
+      <label>${t('payType')}</label>
+      <div class="segment" style="margin-bottom:4px">
+        <button type="button" data-pt="hourly" class="${payType !== 'daily' ? 'active' : ''}">${t('payHourly')}</button>
+        <button type="button" data-pt="daily" class="${payType === 'daily' ? 'active' : ''}">${t('payDaily')}</button>
+      </div>
+      <label>${t('rateLabel')}</label>
+      <input id="j-rate" type="number" min="0" step="any" inputmode="decimal" value="${job?.rate || ''}" placeholder="10030">
+      <label>${t('taxPercent')}</label>
+      <input id="j-tax" type="number" min="0" max="100" step="any" inputmode="decimal" value="${job?.taxPercent || ''}" placeholder="3.3">
+      <div class="error-text" id="j-error"></div>
+      <button class="btn" id="j-save">${t('save')}</button>
+    `);
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelectorAll('[data-pt]').forEach((b) =>
+      b.addEventListener('click', () => {
+        payType = b.dataset.pt;
+        modal.querySelectorAll('[data-pt]').forEach((x) => x.classList.toggle('active', x === b));
+      }));
+    modal.querySelector('#j-save').addEventListener('click', async () => {
+      const err = modal.querySelector('#j-error');
+      err.textContent = '';
+      try {
+        const body = {
+          name: modal.querySelector('#j-name').value,
+          payType,
+          rate: Number(modal.querySelector('#j-rate').value || 0),
+          taxPercent: Number(modal.querySelector('#j-tax').value || 0),
+        };
+        if (job) await api(`/api/jobs/${job.id}`, { method: 'PUT', body });
+        else await api('/api/jobs', { method: 'POST', body });
+        toast(t('saved'), 'success');
+        closeModal();
+        renderWorker();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
   }
 
   // ================================================================
@@ -1083,7 +1300,10 @@
                 : `<span class="status-tag none">${t('absentTag')}</span>`}
             </div>
           </div>
-          <div class="hours"><div class="v">${fmtH(w.minutes)}</div><div class="l">${t('hToday')}</div></div>
+          <div class="hours">
+            <div class="v">${fmtH(w.minutes)}</div>
+            <div class="l">${w.earned != null ? `<span style="color:var(--green);font-weight:800">${fmtMoney(w.earned)}</span>` : t('hToday')}</div>
+          </div>
         </div>`).join('') : `<div class="card" style="max-width:600px"><p class="muted">${t('noMembers')}</p></div>`}
     `;
   }
@@ -1107,7 +1327,7 @@
       }
       return `<tr>
         <td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}</td>
-        ${cells}<td class="total-col">${fmtH(w.totalMinutes)}</td></tr>`;
+        ${cells}<td class="total-col">${fmtH(w.totalMinutes)}${w.earned != null ? `<br><span style="font-size:11px">${fmtMoney(w.earned)}</span>` : ''}</td></tr>`;
     }).join('');
     const grandTotal = data.workers.reduce((a, w) => a + w.totalMinutes, 0);
 
@@ -1214,15 +1434,26 @@
         </div>
       </div>
       <div class="card" style="max-width:600px">
+        <h2>${t('checkModeTitle')}</h2>
+        <div class="segment" style="margin-bottom:8px">
+          <button data-cm="qr" class="${org.checkMode !== 'button' ? 'active' : ''}">${t('modeQr')}</button>
+          <button data-cm="button" class="${org.checkMode === 'button' ? 'active' : ''}">${t('modeButton')}</button>
+        </div>
+        <p class="muted" style="font-size:13px">${t('modeNote')}</p>
+      </div>
+      <div class="card" style="max-width:600px">
         <h2>${t('members', org.members.length)}</h2>
         ${org.members.length ? org.members.map((m) => `
           <div class="worker-admin-row" data-id="${m.id}">
             <span class="avatar" style="background:${avatarColor(m.name)}">${esc(initials(m.name))}</span>
             <div class="info">
               <div class="name">${esc(m.name)}</div>
-              <div class="sub">${esc(m.email)} · ${t('joinedAt', new Date(m.joinedAt).toLocaleDateString())}</div>
+              <div class="sub">${esc(m.email)}${m.hourlyRate > 0 ? ` · ${fmtMoney(m.hourlyRate)}/${t('hUnit')}` : ''}</div>
             </div>
-            <button class="chip red m-remove">${t('removeMember')}</button>
+            <div class="actions">
+              <button class="chip m-rate">${t('memberRate')}</button>
+              <button class="chip red m-remove">${t('removeMember')}</button>
+            </div>
           </div>`).join('') : `<p class="muted">${t('noMembers')}</p>`}
       </div>
     `;
@@ -1233,8 +1464,25 @@
       await api('/api/org/invite/rotate', { method: 'POST' });
       renderBusiness();
     });
+    box.querySelectorAll('[data-cm]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        try {
+          await api('/api/org', { method: 'PUT', body: { checkMode: b.dataset.cm } });
+          toast(t('saved'), 'success');
+          renderBusiness();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      }));
     box.querySelectorAll('.worker-admin-row').forEach((row) => {
       const m = org.members.find((x) => String(x.id) === row.dataset.id);
+      row.querySelector('.m-rate').addEventListener('click', async () => {
+        const v = prompt(t('memberRatePrompt', m.name), m.hourlyRate || '');
+        if (v === null) return;
+        try {
+          await api(`/api/org/members/${m.id}`, { method: 'PUT', body: { hourlyRate: Number(v) } });
+          toast(t('saved'), 'success');
+          renderBusiness();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
       row.querySelector('.m-remove').addEventListener('click', async () => {
         if (!confirm(t('removeMemberConfirm', m.name))) return;
         try {
@@ -1271,6 +1519,18 @@
             <button class="chip gray b-rename">${t('renameBranch')}</button>
             <button class="chip red b-rotate">${t('newQr')}</button>
             <button class="chip red b-del">🗑</button>
+          </div>
+          <div class="loc-box">
+            <div class="muted" style="font-size:13px;margin-bottom:8px">
+              ${b.lat != null ? `<b style="color:var(--green)">${t('locationSaved', b.radius)}</b>` : t('locationNone')}
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap">
+              <button class="chip b-setloc">${t('setLocation')}</button>
+              <input class="b-radius" type="number" min="20" max="2000" value="${b.radius || 50}"
+                     style="width:90px;padding:8px 10px;border-radius:10px" title="${t('radiusLabel')}"> m
+              ${b.lat != null ? '<button class="chip red b-clearloc">✕</button>' : ''}
+            </div>
+            <p class="muted" style="font-size:12px;margin-top:8px">${t('locNote')}</p>
           </div>
         </div>`).join('')}
     `;
@@ -1316,6 +1576,25 @@
           renderBusiness();
         } catch (ex) { toast(terr(ex), 'error'); }
       });
+      card.querySelector('.b-setloc').addEventListener('click', async () => {
+        const loc = await getLoc(10000);
+        if (loc.lat == null) return toast(t('err').LOCATION_REQUIRED || terr({ code: 'LOCATION_REQUIRED' }), 'error', 5000);
+        try {
+          await api(`/api/org/branches/${id}/location`, {
+            method: 'PUT',
+            body: { ...loc, radius: +card.querySelector('.b-radius').value || 50 },
+          });
+          toast(t('saved'), 'success');
+          renderBusiness();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
+      card.querySelector('.b-clearloc')?.addEventListener('click', async () => {
+        try {
+          await api(`/api/org/branches/${id}/location`, { method: 'PUT', body: { lat: null, lng: null } });
+          toast(t('locationCleared'), 'success');
+          renderBusiness();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
     });
   }
 
@@ -1329,6 +1608,7 @@
         <p class="muted">${me.active ? t('paidLeft', me.daysLeft) : t('subExpired')}</p>
         <div id="pay-area">${me.active && !me.pendingPayment ? `<button class="btn outline" id="show-pay" style="margin-top:8px">${t('payTitle')}</button>` : payCardHtml()}</div>
       </div>
+      ${themePickerHtml()}
       <div class="card" style="max-width:600px">
         <h2>${t('accountInfo')}</h2>
         <label>${t('orgName')}</label>
@@ -1346,6 +1626,7 @@
       </div>
     `;
     bindPayCard(renderBusiness);
+    bindThemePicker(renderBusiness);
     document.getElementById('show-pay')?.addEventListener('click', () => {
       document.getElementById('pay-area').innerHTML = payCardHtml();
       bindPayCard(renderBusiness);

@@ -17,7 +17,7 @@ const PORT = process.env.PORT || 3000;
 const DEFAULT_TZ = process.env.TIMEZONE || 'Asia/Seoul';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const DATABASE_URL = process.env.DATABASE_URL;
-const TRIAL_DAYS = 7;
+const TRIAL_DAYS = 15;
 const PRICES = { worker: 990, business: 2900 }; // KRW / oy
 
 if (!DATABASE_URL) {
@@ -108,6 +108,17 @@ async function initDb() {
       active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS jobs (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      org_id INTEGER REFERENCES orgs(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      pay_type TEXT NOT NULL DEFAULT 'hourly',
+      rate NUMERIC NOT NULL DEFAULT 0,
+      tax_percent NUMERIC NOT NULL DEFAULT 0,
+      active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS payments (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -118,6 +129,23 @@ async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       decided_at TIMESTAMPTZ
     );
+  `);
+
+  await pool.query(`
+    ALTER TABLE orgs ADD COLUMN IF NOT EXISTS check_mode TEXT NOT NULL DEFAULT 'qr';
+    ALTER TABLE branches ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;
+    ALTER TABLE branches ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;
+    ALTER TABLE branches ADD COLUMN IF NOT EXISTS radius INTEGER NOT NULL DEFAULT 50;
+    ALTER TABLE memberships ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE entries ADD COLUMN IF NOT EXISTS job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL;
+  `);
+
+  // Mavjud jamoa a'zoliklari uchun bog'langan ish joyi yozuvlari
+  await pool.query(`
+    INSERT INTO jobs (user_id, org_id, name)
+    SELECT m.user_id, m.org_id, o.name FROM memberships m
+    JOIN orgs o ON o.id = m.org_id
+    WHERE NOT EXISTS (SELECT 1 FROM jobs j WHERE j.user_id = m.user_id AND j.org_id = m.org_id)
   `);
 
   await pool.query(
@@ -215,6 +243,29 @@ function validTz(tz) {
 }
 const localDate = (tz, d = new Date()) => tzFmts(tz).date.format(d);
 const localTime = (tz, d = new Date()) => tzFmts(tz).time.format(d);
+
+// Ikki nuqta orasidagi masofa (metrda)
+function distanceM(lat1, lng1, lat2, lng2) {
+  const R = 6371000, toR = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toR, dLng = (lng2 - lng1) * toR;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toR) * Math.cos(lat2 * toR) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Joylashuv tekshiruvi: koordinatali filiallardan eng yaqini radius ichidami
+function geofenceCheck(branches, lat, lng) {
+  const located = branches.filter((b) => b.lat != null && b.lng != null);
+  if (!located.length) return { ok: true };
+  if (lat == null || lng == null) return { ok: false, code: 'LOCATION_REQUIRED' };
+  let best = Infinity, radius = 50;
+  for (const b of located) {
+    const d = distanceM(lat, lng, b.lat, b.lng);
+    if (d < best) { best = d; radius = b.radius || 50; }
+  }
+  if (best > radius) return { ok: false, code: 'TOO_FAR', distance: Math.round(best) };
+  return { ok: true };
+}
 
 // ---------- Login urinishlarini cheklash ----------
 const loginAttempts = new Map();
@@ -334,7 +385,7 @@ app.post('/api/logout', (req, res) => {
 
 async function meJson(u) {
   const memberships = (await pool.query(
-    `SELECT m.org_id AS "orgId", o.name AS "orgName"
+    `SELECT m.org_id AS "orgId", o.name AS "orgName", o.check_mode AS "checkMode"
      FROM memberships m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = $1`, [u.id])).rows;
   const org = u.type === 'business' ? await orgOf(u.id) : null;
   const pending = (await pool.query(
@@ -432,20 +483,22 @@ async function openEntry(userId) {
 app.get('/api/my/status', requireUser, wrap(async (req, res) => {
   const tz = req.user.timezone;
   const open = await openEntry(req.user.id);
-  let orgName = null;
+  let orgName = null, orgCheckMode = null;
   if (open?.org_id) {
-    orgName = (await pool.query(`SELECT name FROM orgs WHERE id = $1`, [open.org_id])).rows[0]?.name || null;
+    const o = (await pool.query(`SELECT name, check_mode FROM orgs WHERE id = $1`, [open.org_id])).rows[0];
+    orgName = o?.name || null;
+    orgCheckMode = o?.check_mode || null;
   }
   res.json({
     checkedIn: !!open,
     since: open ? localTime(tz, open.check_in) : null,
     sinceDate: open ? localDate(tz, open.check_in) : null,
     sinceIso: open ? open.check_in.toISOString() : null,
-    orgName,
+    orgName, orgId: open?.org_id || null, orgCheckMode,
   });
 }));
 
-async function togglePunch(user, orgId, branchId, res) {
+async function togglePunch(user, orgId, branchId, jobId, res) {
   const now = new Date();
   const open = await openEntry(user.id);
   const tz = user.timezone;
@@ -457,27 +510,130 @@ async function togglePunch(user, orgId, branchId, res) {
     return res.json({ action: 'out', time: localTime(tz, now), date: localDate(tz, now) });
   }
   await pool.query(
-    `INSERT INTO entries (user_id, org_id, branch_id, work_date, check_in) VALUES ($1, $2, $3, $4, $5)`,
-    [user.id, orgId, branchId, localDate(tz, now), now]
+    `INSERT INTO entries (user_id, org_id, branch_id, job_id, work_date, check_in) VALUES ($1, $2, $3, $4, $5, $6)`,
+    [user.id, orgId, branchId, jobId, localDate(tz, now), now]
   );
   res.json({ action: 'in', time: localTime(tz, now), date: localDate(tz, now) });
 }
 
-// QR skanerlash (jamoa a'zolari uchun)
+// Jamoa uchun: foydalanuvchining shu jamoaga bog'langan ish joyi yozuvi
+async function orgJobId(userId, orgId) {
+  return (await pool.query(
+    `SELECT id FROM jobs WHERE user_id = $1 AND org_id = $2`, [userId, orgId])).rows[0]?.id || null;
+}
+
+// QR skanerlash (jamoa a'zolari uchun) — joylashuv tekshiruvi bilan
 app.post('/api/scan', requireUser, requireActive, wrap(async (req, res) => {
   const code = String((req.body || {}).code || '').trim();
+  const { lat, lng } = req.body || {};
   const b = (await pool.query(
-    `SELECT b.id, b.org_id FROM branches b WHERE b.qr_token = $1`, [code])).rows[0];
+    `SELECT b.id, b.org_id, b.lat, b.lng, b.radius FROM branches b WHERE b.qr_token = $1`, [code])).rows[0];
   if (!b) return fail(res, 400, "QR kod noto'g'ri", 'BAD_QR');
   const member = (await pool.query(
     `SELECT 1 FROM memberships WHERE user_id = $1 AND org_id = $2`, [req.user.id, b.org_id])).rows[0];
   if (!member) return fail(res, 403, "Siz bu jamoaning a'zosi emassiz", 'NOT_MEMBER');
-  await togglePunch(req.user, b.org_id, b.id, res);
+  const geo = geofenceCheck([b], lat, lng);
+  if (!geo.ok) {
+    return fail(res, 403, geo.code === 'TOO_FAR'
+      ? `Siz ish joyidan ${geo.distance} m uzoqdasiz` : 'Joylashuvga ruxsat kerak', geo.code);
+  }
+  await togglePunch(req.user, b.org_id, b.id, await orgJobId(req.user.id, b.org_id), res);
 }));
 
-// Qo'lda boshlash/tugatish (shaxsiy hisob uchun)
+// Qo'lda boshlash/tugatish: shaxsiy (jobId) yoki tugma rejimidagi jamoa (orgId)
 app.post('/api/punch', requireUser, requireActive, wrap(async (req, res) => {
-  await togglePunch(req.user, null, null, res);
+  const { orgId, jobId, lat, lng } = req.body || {};
+
+  // Yopish: ochiq yozuv bo'lsa uning qoidalari qo'llanadi
+  const open = await openEntry(req.user.id);
+  if (open) {
+    if (open.org_id) {
+      const org = (await pool.query(`SELECT check_mode FROM orgs WHERE id = $1`, [open.org_id])).rows[0];
+      if (org?.check_mode === 'qr') return fail(res, 400, 'Ketish uchun QR skanerlang', 'USE_QR');
+      const branches = (await pool.query(
+        `SELECT lat, lng, radius FROM branches WHERE org_id = $1`, [open.org_id])).rows;
+      const geo = geofenceCheck(branches, lat, lng);
+      if (!geo.ok) {
+        return fail(res, 403, geo.code === 'TOO_FAR'
+          ? `Siz ish joyidan ${geo.distance} m uzoqdasiz` : 'Joylashuvga ruxsat kerak', geo.code);
+      }
+    }
+    return togglePunch(req.user, null, null, null, res);
+  }
+
+  // Boshlash
+  if (orgId) {
+    const oid = parseInt(orgId, 10);
+    const member = (await pool.query(
+      `SELECT 1 FROM memberships WHERE user_id = $1 AND org_id = $2`, [req.user.id, oid])).rows[0];
+    if (!member) return fail(res, 403, "Siz bu jamoaning a'zosi emassiz", 'NOT_MEMBER');
+    const org = (await pool.query(`SELECT check_mode FROM orgs WHERE id = $1`, [oid])).rows[0];
+    if (org?.check_mode === 'qr') return fail(res, 400, 'Bu jamoada QR skanerlash kerak', 'USE_QR');
+    const branches = (await pool.query(
+      `SELECT lat, lng, radius FROM branches WHERE org_id = $1`, [oid])).rows;
+    const geo = geofenceCheck(branches, lat, lng);
+    if (!geo.ok) {
+      return fail(res, 403, geo.code === 'TOO_FAR'
+        ? `Siz ish joyidan ${geo.distance} m uzoqdasiz` : 'Joylashuvga ruxsat kerak', geo.code);
+    }
+    return togglePunch(req.user, oid, null, await orgJobId(req.user.id, oid), res);
+  }
+  let jid = null;
+  if (jobId) {
+    const j = (await pool.query(
+      `SELECT id FROM jobs WHERE id = $1 AND user_id = $2 AND org_id IS NULL AND active`,
+      [parseInt(jobId, 10), req.user.id])).rows[0];
+    if (!j) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+    jid = j.id;
+  }
+  await togglePunch(req.user, null, null, jid, res);
+}));
+
+// ---------- Shaxsiy ish joylari ----------
+app.get('/api/jobs', requireUser, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, org_id AS "orgId", name, pay_type AS "payType", rate::float,
+            tax_percent AS "taxPercent", active
+     FROM jobs WHERE user_id = $1 ORDER BY org_id NULLS FIRST, id`, [req.user.id]);
+  res.json(r.rows.map((j) => ({ ...j, taxPercent: +j.taxPercent })));
+}));
+
+function validJob(body, res) {
+  const name = String(body.name || '').trim();
+  const payType = body.payType === 'daily' ? 'daily' : 'hourly';
+  const rate = Number(body.rate ?? 0);
+  const tax = Number(body.taxPercent ?? 0);
+  if (!name) { fail(res, 400, 'Nomini kiriting', 'NAME_REQUIRED'); return null; }
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1e9) { fail(res, 400, "Stavka noto'g'ri", 'BAD_RATE'); return null; }
+  if (!Number.isFinite(tax) || tax < 0 || tax > 100) { fail(res, 400, 'Soliq 0-100 orasida', 'BAD_TAX'); return null; }
+  return { name, payType, rate, tax };
+}
+
+app.post('/api/jobs', requireUser, wrap(async (req, res) => {
+  const v = validJob(req.body || {}, res);
+  if (!v) return;
+  const r = await pool.query(
+    `INSERT INTO jobs (user_id, name, pay_type, rate, tax_percent) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [req.user.id, v.name, v.payType, v.rate, v.tax]);
+  res.json({ ok: true, id: r.rows[0].id });
+}));
+
+app.put('/api/jobs/:id', requireUser, wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const own = (await pool.query(`SELECT id FROM jobs WHERE id = $1 AND user_id = $2`, [id, req.user.id])).rows[0];
+  if (!own) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  const v = validJob(req.body || {}, res);
+  if (!v) return;
+  await pool.query(
+    `UPDATE jobs SET name = $1, pay_type = $2, rate = $3, tax_percent = $4 WHERE id = $5`,
+    [v.name, v.payType, v.rate, v.tax, id]);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/jobs/:id', requireUser, wrap(async (req, res) => {
+  await pool.query(`DELETE FROM jobs WHERE id = $1 AND user_id = $2 AND org_id IS NULL`,
+    [parseInt(req.params.id, 10), req.user.id]);
+  res.json({ ok: true });
 }));
 
 function parseYearMonth(req, res) {
@@ -500,7 +656,7 @@ const monthBounds = (year, month) => {
 async function userMonth(userId, tz, year, month, orgOnly = null) {
   const { start, next } = monthBounds(year, month);
   const r = await pool.query(
-    `SELECT e.id, e.work_date::text AS date, e.check_in, e.check_out, e.org_id,
+    `SELECT e.id, e.work_date::text AS date, e.check_in, e.check_out, e.org_id, e.job_id,
             ROUND(EXTRACT(EPOCH FROM (COALESCE(e.check_out, now()) - e.check_in)) / 60)::int AS minutes
      FROM entries e
      WHERE e.user_id = $1 AND e.work_date >= $2 AND e.work_date < $3
@@ -512,7 +668,7 @@ async function userMonth(userId, tz, year, month, orgOnly = null) {
   let totalMinutes = 0;
   for (const e of r.rows) {
     const d = (days[e.date] ||= { sessions: [], minutes: 0, open: false });
-    d.sessions.push({ id: e.id, in: localTime(tz, e.check_in), out: e.check_out ? localTime(tz, e.check_out) : null, minutes: e.minutes });
+    d.sessions.push({ id: e.id, jobId: e.job_id, in: localTime(tz, e.check_in), out: e.check_out ? localTime(tz, e.check_out) : null, minutes: e.minutes });
     d.minutes += e.minutes;
     totalMinutes += e.minutes;
     if (!e.check_out) d.open = true;
@@ -585,26 +741,68 @@ app.delete('/api/finance/:id', requireUser, wrap(async (req, res) => {
 app.get('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
   const org = await orgOf(req.user.id);
   const branches = (await pool.query(
-    `SELECT id, name, qr_token AS token FROM branches WHERE org_id = $1 ORDER BY id`, [org.id])).rows;
+    `SELECT id, name, qr_token AS token, lat, lng, radius FROM branches WHERE org_id = $1 ORDER BY id`, [org.id])).rows;
   for (const b of branches) {
     b.dataUrl = await QRCode.toDataURL(b.token, { width: 512, margin: 2 });
   }
   const members = (await pool.query(
-    `SELECT u.id, u.name, u.email, m.joined_at AS "joinedAt"
+    `SELECT u.id, u.name, u.email, m.joined_at AS "joinedAt", m.hourly_rate::float AS "hourlyRate"
      FROM memberships m JOIN users u ON u.id = m.user_id
      WHERE m.org_id = $1 ORDER BY u.name`, [org.id])).rows;
   res.json({
     id: org.id, name: org.name,
     inviteToken: org.invite_token,
+    checkMode: org.check_mode,
     branches, members,
   });
 }));
 
 app.put('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
-  const name = String((req.body || {}).name || '').trim();
-  if (!name) return fail(res, 400, 'Nomini kiriting', 'NAME_REQUIRED');
   const org = await orgOf(req.user.id);
-  await pool.query(`UPDATE orgs SET name = $1 WHERE id = $2`, [name, org.id]);
+  const { name, checkMode } = req.body || {};
+  if (name !== undefined) {
+    const n = String(name).trim();
+    if (!n) return fail(res, 400, 'Nomini kiriting', 'NAME_REQUIRED');
+    await pool.query(`UPDATE orgs SET name = $1 WHERE id = $2`, [n, org.id]);
+  }
+  if (checkMode !== undefined) {
+    const m = checkMode === 'button' ? 'button' : 'qr';
+    await pool.query(`UPDATE orgs SET check_mode = $1 WHERE id = $2`, [m, org.id]);
+  }
+  res.json({ ok: true });
+}));
+
+// A'zoning jamoadagi soatlik stavkasi (maosh ko'rsatish uchun)
+app.put('/api/org/members/:userId', requireUser, requireBusiness, wrap(async (req, res) => {
+  const rate = Number((req.body || {}).hourlyRate);
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1e9) return fail(res, 400, "Stavka noto'g'ri", 'BAD_RATE');
+  const org = await orgOf(req.user.id);
+  const r = await pool.query(
+    `UPDATE memberships SET hourly_rate = $1 WHERE org_id = $2 AND user_id = $3 RETURNING user_id`,
+    [rate, org.id, parseInt(req.params.userId, 10)]);
+  if (!r.rows[0]) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  res.json({ ok: true });
+}));
+
+// Filial joylashuvini saqlash/o'chirish (geofence uchun)
+app.put('/api/org/branches/:id/location', requireUser, requireBusiness, wrap(async (req, res) => {
+  const org = await orgOf(req.user.id);
+  const { lat, lng, radius } = req.body || {};
+  if (lat === null || lng === null) {
+    const r = await pool.query(
+      `UPDATE branches SET lat = NULL, lng = NULL WHERE id = $1 AND org_id = $2 RETURNING id`,
+      [parseInt(req.params.id, 10), org.id]);
+    if (!r.rows[0]) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+    return res.json({ ok: true });
+  }
+  const la = Number(lat), ln = Number(lng), rad = Math.min(2000, Math.max(20, parseInt(radius, 10) || 50));
+  if (!Number.isFinite(la) || la < -90 || la > 90 || !Number.isFinite(ln) || ln < -180 || ln > 180) {
+    return fail(res, 400, "Joylashuv noto'g'ri", 'BAD_LOCATION');
+  }
+  const r = await pool.query(
+    `UPDATE branches SET lat = $1, lng = $2, radius = $3 WHERE id = $4 AND org_id = $5 RETURNING id`,
+    [la, ln, rad, parseInt(req.params.id, 10), org.id]);
+  if (!r.rows[0]) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
   res.json({ ok: true });
 }));
 
@@ -665,7 +863,8 @@ app.get('/api/org/summary', requireUser, requireBusiness, wrap(async (req, res) 
   const org = await orgOf(req.user.id);
   const { start, next } = monthBounds(year, month);
   const members = (await pool.query(
-    `SELECT u.id, u.name FROM memberships m JOIN users u ON u.id = m.user_id
+    `SELECT u.id, u.name, m.hourly_rate::float AS rate
+     FROM memberships m JOIN users u ON u.id = m.user_id
      WHERE m.org_id = $1 ORDER BY u.name`, [org.id])).rows;
   const sums = (await pool.query(
     `SELECT user_id, work_date::text AS date,
@@ -679,7 +878,9 @@ app.get('/api/org/summary', requireUser, requireBusiness, wrap(async (req, res) 
     year, month,
     workers: members.map((m) => {
       const days = byUser[m.id] || {};
-      return { id: m.id, name: m.name, days, totalMinutes: Object.values(days).reduce((a, d) => a + d.minutes, 0) };
+      const totalMinutes = Object.values(days).reduce((a, d) => a + d.minutes, 0);
+      return { id: m.id, name: m.name, days, totalMinutes,
+               earned: m.rate > 0 ? Math.round(totalMinutes / 60 * m.rate) : null };
     }),
   });
 }));
@@ -690,7 +891,7 @@ app.get('/api/org/board', requireUser, requireBusiness, wrap(async (req, res) =>
   const tz = req.user.timezone;
   const today = localDate(tz);
   const rows = (await pool.query(
-    `SELECT u.id, u.name,
+    `SELECT u.id, u.name, m.hourly_rate::float AS rate,
             COALESCE(SUM(ROUND(EXTRACT(EPOCH FROM (COALESCE(e.check_out, now()) - e.check_in)) / 60)), 0)::int AS minutes,
             BOOL_OR(e.check_out IS NULL) AS open,
             MIN(e.check_in) AS first_in
@@ -698,13 +899,14 @@ app.get('/api/org/board', requireUser, requireBusiness, wrap(async (req, res) =>
      JOIN users u ON u.id = m.user_id
      LEFT JOIN entries e ON e.user_id = u.id AND e.org_id = $1 AND e.work_date = $2
      WHERE m.org_id = $1
-     GROUP BY u.id ORDER BY u.name`, [org.id, today])).rows;
+     GROUP BY u.id, m.hourly_rate ORDER BY u.name`, [org.id, today])).rows;
   res.json({
     date: today, time: localTime(tz),
     workers: rows.map((r) => ({
       id: r.id, name: r.name, minutes: r.minutes,
       status: r.open ? 'in' : (r.minutes > 0 ? 'out' : 'none'),
       since: r.first_in ? localTime(tz, r.first_in) : null,
+      earned: r.rate > 0 ? Math.round(r.minutes / 60 * r.rate) : null,
     })),
   });
 }));
@@ -801,6 +1003,10 @@ app.post('/api/join', requireUser, wrap(async (req, res) => {
   await pool.query(
     `INSERT INTO memberships (user_id, org_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
     [req.user.id, org.id]);
+  await pool.query(
+    `INSERT INTO jobs (user_id, org_id, name)
+     SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM jobs WHERE user_id = $1 AND org_id = $2)`,
+    [req.user.id, org.id, org.name]);
   res.json({ ok: true, orgName: org.name });
 }));
 
