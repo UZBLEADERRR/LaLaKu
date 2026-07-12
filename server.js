@@ -124,6 +124,18 @@ async function initDb() {
       active BOOLEAN NOT NULL DEFAULT TRUE,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS schedules (
+      id SERIAL PRIMARY KEY,
+      org_id INTEGER NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      work_date DATE NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      note TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (org_id, user_id, work_date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_schedules_org_date ON schedules(org_id, work_date);
     CREATE TABLE IF NOT EXISTS org_invites (
       id SERIAL PRIMARY KEY,
       org_id INTEGER NOT NULL REFERENCES orgs(id) ON DELETE CASCADE,
@@ -356,6 +368,32 @@ async function orgOf(userId) {
 
 // ================= UMUMIY =================
 app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+// Valyuta kurslari (KRW asosida) — 12 soat keshlanadi
+let RATES_CACHE = null;
+const RATE_KEYS = ['KRW', 'USD', 'UZS', 'RUB', 'VND', 'MMK', 'INR', 'CNY', 'KZT', 'KGS'];
+app.get('/api/rates', wrap(async (req, res) => {
+  if (RATES_CACHE && Date.now() - RATES_CACHE.ts < 12 * 3600_000) return res.json(RATES_CACHE.data);
+  // Bir nechta manba: biri ishlamasa keyingisi
+  const sources = [
+    'https://open.er-api.com/v6/latest/KRW',
+    'https://api.exchangerate.fun/latest?base=KRW',
+  ];
+  for (const url of sources) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const j = await r.json();
+      if (!j.rates || !Object.keys(j.rates).length) continue;
+      const rates = {};
+      for (const k of RATE_KEYS) if (j.rates[k]) rates[k] = j.rates[k];
+      rates.KRW = 1;
+      const data = { base: 'KRW', rates, updated: new Date().toISOString() };
+      RATES_CACHE = { ts: Date.now(), data };
+      return res.json(data);
+    } catch (e) { /* keyingi manbaga o'tamiz */ }
+  }
+  res.json(RATES_CACHE ? RATES_CACHE.data : { base: 'KRW', rates: { KRW: 1 } });
+}));
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -743,6 +781,21 @@ async function userMonth(userId, tz, year, month, orgOnly = null) {
   const daysWorked = Object.values(days).filter((d) => d.minutes > 0 || d.open).length;
   return { year, month, days, totalMinutes, daysWorked };
 }
+
+// Yillik jamlanma: har oy + ish joyi bo'yicha daqiqalar va kunlar
+app.get('/api/my/year', requireUser, wrap(async (req, res) => {
+  const year = parseInt(req.query.year, 10);
+  if (!year || year < 2000 || year > 2100) return fail(res, 400, "Yil noto'g'ri", 'BAD_MONTH');
+  const r = await pool.query(
+    `SELECT EXTRACT(MONTH FROM work_date)::int AS month, COALESCE(job_id, 0) AS "jobId",
+            SUM(ROUND(EXTRACT(EPOCH FROM (COALESCE(check_out, now()) - check_in)) / 60))::int AS minutes,
+            COUNT(DISTINCT work_date)::int AS days
+     FROM entries
+     WHERE user_id = $1 AND work_date >= ($2 || '-01-01')::date AND work_date < (($2::int + 1) || '-01-01')::date
+     GROUP BY 1, 2 ORDER BY 1`,
+    [req.user.id, String(year)]);
+  res.json({ year, rows: r.rows });
+}));
 
 app.get('/api/my/summary', requireUser, wrap(async (req, res) => {
   const { year, month } = parseYearMonth(req, res);
@@ -1185,6 +1238,56 @@ app.delete('/api/org/entries/:id', requireUser, requireBusiness, wrap(async (req
   const org = await orgOf(req.user.id);
   await pool.query(`DELETE FROM entries WHERE id = $1 AND org_id = $2`, [parseInt(req.params.id, 10), org.id]);
   res.json({ ok: true });
+}));
+
+// ================= REJA (SMENA) =================
+// Oshxona ishchilarga oldindan ish rejasini (smena) tuzadi
+app.get('/api/org/schedule', requireUser, requireBusiness, wrap(async (req, res) => {
+  const { year, month } = parseYearMonth(req, res);
+  if (!year) return;
+  const org = await orgOf(req.user.id);
+  const { start, next } = monthBounds(year, month);
+  const rows = (await pool.query(
+    `SELECT id, user_id AS "userId", work_date::text AS date, start_time AS "start", end_time AS "end", note
+     FROM schedules WHERE org_id = $1 AND work_date >= $2 AND work_date < $3
+     ORDER BY work_date`, [org.id, start, next])).rows;
+  res.json({ year, month, schedules: rows });
+}));
+
+app.post('/api/org/schedule', requireUser, requireBusiness, requireActive, wrap(async (req, res) => {
+  const { userId, date, start, end, note } = req.body || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return fail(res, 400, "Sana noto'g'ri", 'BAD_DATE');
+  if (!TIME_RE.test(String(start || '')) || !TIME_RE.test(String(end || ''))) return fail(res, 400, "Vaqt noto'g'ri", 'BAD_TIME');
+  const org = await orgOf(req.user.id);
+  const member = (await pool.query(
+    `SELECT 1 FROM memberships WHERE org_id = $1 AND user_id = $2`, [org.id, parseInt(userId, 10)])).rows[0];
+  if (!member) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  await pool.query(
+    `INSERT INTO schedules (org_id, user_id, work_date, start_time, end_time, note)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (org_id, user_id, work_date)
+     DO UPDATE SET start_time = EXCLUDED.start_time, end_time = EXCLUDED.end_time, note = EXCLUDED.note`,
+    [org.id, parseInt(userId, 10), date, start, end, note ? String(note).slice(0, 200) : null]);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/org/schedule/:id', requireUser, requireBusiness, wrap(async (req, res) => {
+  const org = await orgOf(req.user.id);
+  await pool.query(`DELETE FROM schedules WHERE id = $1 AND org_id = $2`, [parseInt(req.params.id, 10), org.id]);
+  res.json({ ok: true });
+}));
+
+// Ishchi o'z rejasini ko'radi (barcha jamoalar bo'yicha)
+app.get('/api/my/schedule', requireUser, wrap(async (req, res) => {
+  const { year, month } = parseYearMonth(req, res);
+  if (!year) return;
+  const { start, next } = monthBounds(year, month);
+  const rows = (await pool.query(
+    `SELECT s.id, s.work_date::text AS date, s.start_time AS "start", s.end_time AS "end", s.note, o.name AS "orgName"
+     FROM schedules s JOIN orgs o ON o.id = s.org_id
+     WHERE s.user_id = $1 AND s.work_date >= $2 AND s.work_date < $3
+     ORDER BY s.work_date`, [req.user.id, start, next])).rows;
+  res.json({ year, month, schedules: rows });
 }));
 
 // ================= TAKLIF HAVOLASI =================

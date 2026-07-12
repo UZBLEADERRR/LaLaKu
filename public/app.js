@@ -3,8 +3,33 @@
   const $app = document.getElementById('app');
   const $nav = document.getElementById('bottom-nav');
   const AVATAR_COLORS = ['#5b5bd6', '#0d9488', '#c2410c', '#be185d', '#7c3aed', '#0369a1', '#0a9f6d', '#e5484d'];
-  const LANG_NAMES = { uz: "O'zbekcha", en: 'English', ko: '한국어' };
-  const LOCALES = { uz: 'uz-UZ', en: 'en-US', ko: 'ko-KR' };
+  const LANG_NAMES = {
+    uz: "O'zbekcha", en: 'English', ru: 'Русский', ko: '한국어', vi: 'Tiếng Việt',
+    my: 'မြန်မာ', hi: 'हिन्दी', zh: '中文', kk: 'Қазақша', ky: 'Кыргызча',
+  };
+  const LOCALES = {
+    uz: 'uz-UZ', en: 'en-US', ru: 'ru-RU', ko: 'ko-KR', vi: 'vi-VN',
+    my: 'my-MM', hi: 'hi-IN', zh: 'zh-CN', kk: 'kk-KZ', ky: 'ky-KG',
+  };
+  // Valyutalar: kod → belgi
+  const CURRENCIES = {
+    KRW: '₩', USD: '$', UZS: "so'm", RUB: '₽', VND: '₫',
+    MMK: 'K', INR: '₹', CNY: '¥', KZT: '₸', KGS: 'сом',
+  };
+  let CUR = localStorage.getItem('lalaku_cur') || 'KRW';
+  if (!CURRENCIES[CUR]) CUR = 'KRW';
+  let RATES = { KRW: 1 };  // KRW → boshqa valyuta
+  try { RATES = JSON.parse(localStorage.getItem('lalaku_rates')) || { KRW: 1 }; } catch {}
+  async function loadRates() {
+    try {
+      const r = await fetch('/api/rates');
+      const j = await r.json();
+      if (j.rates && j.rates.KRW) {
+        RATES = j.rates;
+        localStorage.setItem('lalaku_rates', JSON.stringify(RATES));
+      }
+    } catch {}
+  }
   const TIMEZONES = [
     ['Asia/Seoul', 'Seoul (Korea)'], ['Asia/Tokyo', 'Tokyo (Japan)'],
     ['Asia/Shanghai', 'Shanghai (China)'], ['Asia/Tashkent', 'Tashkent (Uzbekistan)'],
@@ -25,7 +50,17 @@
   const terr = (ex) => (ex.code && (window.I18N[LANG].err[ex.code] || window.I18N.uz.err[ex.code])) || ex.message || t('genericError');
   const MONTHS = () => window.I18N[LANG].months;
   const DOWS = () => window.I18N[LANG].dows;
-  const fmtMoney = (n) => (n < 0 ? '−' : '') + '₩' + new Intl.NumberFormat(LOCALES[LANG]).format(Math.abs(Math.round(n)));
+  // Pul KRW'da saqlanadi, tanlangan valyutaga jonli aylantiriladi
+  function fmtMoney(krw) {
+    const rate = RATES[CUR] || 1;
+    const val = krw * rate;
+    const sym = CURRENCIES[CUR];
+    const dec = (CUR === 'USD' || CUR === 'CNY') ? (Math.abs(val) < 1000 ? 2 : 0) : 0;
+    const num = new Intl.NumberFormat(LOCALES[LANG], { maximumFractionDigits: dec }).format(Math.abs(val));
+    const sign = krw < 0 ? '−' : '';
+    // Belgi oldinda (₩$¥₹₽₫₸) yoki keyin (so'm, сом, K)
+    return /^[A-Za-zА-Яа-яʻ']/.test(sym) ? `${sign}${num} ${sym}` : `${sign}${sym}${num}`;
+  }
 
   const langSelHtml = () => `
     <select class="lang-sel" id="lang-sel" aria-label="Language">
@@ -86,6 +121,7 @@
     wallet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="14" rx="3"/><path d="M3 10h18M16.5 15h.01"/></svg>',
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c.8-3.8 3.7-6 7.5-6s6.7 2.2 7.5 6"/></svg>',
     scan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></svg>',
+    board: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16.5 15.2c2.2.3 3.6 1.8 4 4.3"/></svg>',
   };
 
   const state = {
@@ -367,7 +403,10 @@
     }
 
     $app.innerHTML = `
-      <div class="topbar">${brandHtml('')}${langSelHtml()}</div>
+      <div class="topbar">
+        ${state.addingAccount ? `<button class="chip gray" id="auth-back">${t('back')}</button>` : brandHtml('')}
+        ${langSelHtml()}
+      </div>
       ${joinBanner}
       <div class="hero-login">
         <h1>${t('welcome')}</h1>
@@ -423,6 +462,11 @@
     document.querySelectorAll('.segment button').forEach((b) =>
       b.addEventListener('click', () => renderAuth(b.dataset.m)));
     document.getElementById('auth-switch').addEventListener('click', () => renderAuth(mode === 'signup' ? 'login' : 'signup'));
+    document.getElementById('auth-back')?.addEventListener('click', () => {
+      // Akkaunt qo'shishdan voz kechish — avvalgi faol akkauntga qaytish
+      state.addingAccount = false;
+      location.reload();
+    });
     document.getElementById('go-admin').addEventListener('click', renderPadminLogin);
 
     if (mode === 'signup') {
@@ -582,7 +626,7 @@
   async function renderWorkerHome() {
     const now = new Date();
     const year = now.getFullYear(), month = now.getMonth() + 1;
-    let status, summary, jobs;
+    let status, summary, jobs, sched = { schedules: [] };
     try {
       [status, summary, jobs, state.me] = await Promise.all([
         api('/api/my/status'),
@@ -590,12 +634,27 @@
         api('/api/jobs'),
         api('/api/me'),
       ]);
+      if (state.me.memberships.length) sched = await api(`/api/my/schedule?year=${year}&month=${month}`);
     } catch (ex) {
       if (ex.code === 'AUTH') return renderAuth();
       toast(terr(ex), 'error');
       return;
     }
     state.jobs = jobs;
+
+    // Bugun va keyingi kunlardagi rejalashtirilgan smenalar
+    const today0 = todayStr();
+    const upcoming = sched.schedules.filter((s) => s.date >= today0).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 5);
+    const schedHtml = upcoming.length ? `
+      <div class="card">
+        <h2>${t('mySchedule')}</h2>
+        ${upcoming.map((s) => `
+          <div class="sched-row">
+            <span class="sd">${s.date === today0 ? '<b style="color:var(--green)">•</b> ' : ''}${dayTitle(s.date)}</span>
+            <span class="st">${s.start} → ${s.end}</span>
+            <span class="muted" style="font-size:12px;text-align:right">${esc(s.orgName)}${s.note ? `<br>${esc(s.note)}` : ''}</span>
+          </div>`).join('')}
+      </div>` : '';
 
     const me = state.me;
     const today = todayStr();
@@ -696,6 +755,7 @@
         <button class="chip" id="job-add">＋</button>
       </div>
       ${wpCards || `<div class="card"><p class="muted">${t('noWorkplaces')}</p></div>`}
+      ${schedHtml}
     `;
     bindPayCard(renderWorker);
     document.getElementById('job-add').addEventListener('click', () => openJobModal(null));
@@ -850,11 +910,12 @@
     const wp = state.wp;
     if (!wp) { state.view = 'home'; return renderWorker(); }
     const { year, month } = currentMonth();
-    let fullSummary, jobs;
+    let fullSummary, jobs, yearData;
     try {
-      [fullSummary, jobs] = await Promise.all([
+      [fullSummary, jobs, yearData] = await Promise.all([
         api(`/api/my/summary?year=${year}&month=${month}`),
         api('/api/jobs'),
+        api(`/api/my/year?year=${year}`),
       ]);
     } catch (ex) {
       if (ex.code === 'AUTH') return renderAuth();
@@ -867,6 +928,25 @@
     const summary = filterSummary(fullSummary, wp.jobId);
     const e = jobEarn(job, summary.totalMinutes, summary.daysWorked);
     const taxP = job ? job.taxPercent : state.me.taxPercent;
+
+    // Yillik: shu ish joyi bo'yicha har oy soat va sof daromad
+    const byMonth = {};
+    for (const r of yearData.rows) {
+      if ((r.jobId || 0) !== wp.jobId) continue;
+      (byMonth[r.month] ||= { minutes: 0, days: 0 });
+      byMonth[r.month].minutes += r.minutes;
+      byMonth[r.month].days += r.days;
+    }
+    let yearMin = 0, yearNet = 0;
+    const yearCells = [];
+    for (let m = 1; m <= 12; m++) {
+      const d = byMonth[m];
+      if (!d || d.minutes === 0) continue;
+      const em = jobEarn(job, d.minutes, d.days);
+      yearMin += d.minutes;
+      yearNet += em.net;
+      yearCells.push(`<div class="year-cell"><div class="ym">${MONTHS()[m - 1].slice(0, 3)}</div><div class="yh">${fmtH(d.minutes)}</div>${em.hasRate ? `<div class="yn">${fmtMoney(em.net)}</div>` : ''}</div>`);
+    }
 
     $app.innerHTML = `
       <div class="topbar">
@@ -893,6 +973,15 @@
         ${calendarHtml(summary, year, month)}
         <div class="day-detail ${state.selectedDay ? '' : 'hidden'}" id="day-detail"></div>
       </div>
+
+      ${yearCells.length ? `
+      <div class="card year-total-card">
+        <div class="modal-head" style="margin-bottom:10px">
+          <h2 style="margin:0">${t('yearTotal', year)}</h2>
+          <span class="muted">${fmtH(yearMin)}${e.hasRate ? ` · <b style="color:var(--green)">${fmtMoney(yearNet)}</b>` : ''}</span>
+        </div>
+        <div class="year-grid">${yearCells.join('')}</div>
+      </div>` : ''}
 
       ${!isTeam ? `<button class="btn outline" id="wp-move" style="margin-bottom:10px">${t('moveOld')}</button>` : ''}
       ${isTeam ? `<button class="btn ghost" id="wp-leave" style="color:var(--red)">${t('leaveTeam')} — ${esc(name)}</button>` : ''}
@@ -1490,11 +1579,17 @@
           <span>${t('accInfoRow')}</span><span class="muted">›</span>
         </div>
         <div class="set-row">
+          <span>${t('currency')}</span>
+          <select id="cur-sel" class="lang-sel" style="max-width:150px">
+            ${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === CUR ? 'selected' : ''}>${c} ${CURRENCIES[c]}</option>`).join('')}
+          </select>
+        </div>
+        <div class="set-row">
           <span>${t('notifRow')}</span>
           <button class="chip ${notifOn ? '' : 'gray'}" id="notif-toggle">${notifOn ? t('notifOn') : t('notifOff')}</button>
         </div>
         <div class="set-row" style="display:block">
-          <div style="margin-bottom:10px">${t('theme').replace('🎨 ', '🎨 ')}</div>
+          <div style="margin-bottom:10px">${t('theme')}</div>
           <div class="theme-row">
             ${THEMES.map((th) => `
               <button class="theme-chip ${th === THEME ? 'active' : ''}" data-theme-pick="${th}">
@@ -1518,6 +1613,12 @@
     document.getElementById('id-copy').addEventListener('click', () =>
       navigator.clipboard.writeText('#' + me.id).then(() => toast(t('copied'), 'success')));
     document.getElementById('set-accinfo').addEventListener('click', () => openAccInfoModal(renderWorker));
+    document.getElementById('cur-sel').addEventListener('change', async (e) => {
+      CUR = e.target.value;
+      localStorage.setItem('lalaku_cur', CUR);
+      await loadRates();
+      renderWorker();
+    });
     document.getElementById('notif-toggle').addEventListener('click', async () => {
       if (localStorage.getItem('lalaku_notif') === '1') {
         localStorage.setItem('lalaku_notif', '0');
@@ -1667,8 +1768,16 @@
 
   async function bizCalendarTab(box) {
     const { year, month } = currentMonth();
-    const data = await api(`/api/org/summary?year=${year}&month=${month}`);
+    const mode = state.bizCalMode === 'schedule' ? 'schedule' : 'worked';
+    const [data, sched] = await Promise.all([
+      api(`/api/org/summary?year=${year}&month=${month}`),
+      api(`/api/org/schedule?year=${year}&month=${month}`),
+    ]);
     const daysInMonth = new Date(year, month, 0).getDate();
+    // Rejalarni user_id+sana bo'yicha indekslash
+    const schedMap = {};
+    for (const s of sched.schedules) schedMap[`${s.userId}_${s.date}`] = s;
+
     const headCells = [];
     for (let d = 1; d <= daysInMonth; d++) {
       const dow = new Date(year, month - 1, d).getDay();
@@ -1678,39 +1787,109 @@
       let cells = '';
       for (let d = 1; d <= daysInMonth; d++) {
         const date = `${year}-${pad(month)}-${pad(d)}`;
-        const dd = w.days[date];
-        const cls = dd ? (dd.open ? 'day-cell open' : 'day-cell has') : 'day-cell';
-        cells += `<td class="${cls}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${dd ? fmtH(dd.minutes) : '·'}</td>`;
+        if (mode === 'schedule') {
+          const sc = schedMap[`${w.id}_${date}`];
+          cells += `<td class="day-cell ${sc ? 'has' : ''}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${sc ? `${sc.start}<br>${sc.end}` : '·'}</td>`;
+        } else {
+          const dd = w.days[date];
+          const cls = dd ? (dd.open ? 'day-cell open' : 'day-cell has') : 'day-cell';
+          cells += `<td class="${cls}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${dd ? fmtH(dd.minutes) : '·'}</td>`;
+        }
       }
+      const totalCell = mode === 'schedule' ? '' :
+        `<td class="total-col">${fmtH(w.totalMinutes)}${w.earned != null ? `<br><span style="font-size:11px">${fmtMoney(w.earned)}</span>` : ''}</td>`;
       return `<tr>
         <td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}</td>
-        ${cells}<td class="total-col">${fmtH(w.totalMinutes)}${w.earned != null ? `<br><span style="font-size:11px">${fmtMoney(w.earned)}</span>` : ''}</td></tr>`;
+        ${cells}${totalCell}</tr>`;
     }).join('');
     const grandTotal = data.workers.reduce((a, w) => a + w.totalMinutes, 0);
 
+    // Ishchilar ro'yxati (jami soat + daromad) — umumiy ko'rinish
+    const rosterHtml = data.workers.length ? `
+      <div class="card">
+        <div class="modal-head" style="margin-bottom:8px"><h2 style="margin:0">${t('rosterTitle')}</h2>
+          <span class="muted"><b style="color:var(--accent)">${fmtH(grandTotal)}</b> ${t('hUnit')}</span></div>
+        ${data.workers.map((w) => `
+          <div class="fin-row" data-roster="${w.id}" data-name="${esc(w.name)}" style="cursor:pointer">
+            <span class="avatar" style="background:${avatarColor(w.name)};width:38px;height:38px;font-size:13px">${esc(initials(w.name))}</span>
+            <div class="info"><div class="name">${esc(w.name)}</div>
+              <div class="sub">${fmtH(w.totalMinutes)} ${t('hUnit')}${w.days && Object.keys(w.days).length ? ` · ${Object.keys(w.days).length} ${t('dUnit')}` : ''}</div></div>
+            ${w.earned != null ? `<b style="color:var(--green)">${fmtMoney(w.earned)}</b>` : ''}
+          </div>`).join('')}
+      </div>` : '';
+
     box.innerHTML = `
+      <div class="cal-toggle">
+        <button class="tab ${mode === 'worked' ? 'active' : ''}" data-bcm="worked">${t('modeWorked')}</button>
+        <button class="tab ${mode === 'schedule' ? 'active' : ''}" data-bcm="schedule">${t('modeSchedule')}</button>
+      </div>
       <div class="card" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:16px 18px">
         <div class="cal-title">${calTitle(year, month)}</div>
-        <div style="display:flex;align-items:center;gap:12px">
-          <span class="muted">${t('grandTotal')}: <b style="color:var(--accent)">${fmtH(grandTotal)}</b> ${t('hUnit')}</span>
-          <div class="cal-nav"><button id="cal-prev">‹</button><button id="cal-next">›</button></div>
-        </div>
+        <div class="cal-nav"><button id="cal-prev">‹</button><button id="cal-next">›</button></div>
       </div>
       ${data.workers.length ? `
       <div class="table-wrap">
         <table class="summary">
-          <thead><tr><th class="name-col">${t('workerCol')}</th>${headCells.join('')}<th class="total-col">${t('totalCol')}</th></tr></thead>
+          <thead><tr><th class="name-col">${t('workerCol')}</th>${headCells.join('')}${mode === 'worked' ? `<th class="total-col">${t('totalCol')}</th>` : ''}</tr></thead>
           <tbody>${rows}</tbody>
         </table>
       </div>
-      <p class="muted" style="margin:10px 4px 0">${t('tableHint')}</p>
+      <p class="muted" style="margin:10px 4px 14px">${mode === 'schedule' ? t('noSchedule') : t('tableHint')}</p>
       ` : `<div class="card"><p class="muted">${t('noMembers')}</p></div>`}
+      ${mode === 'worked' ? rosterHtml : ''}
     `;
     bindCalendarNav(renderBusiness);
-    box.querySelectorAll('td.day-cell').forEach((td) =>
-      td.addEventListener('click', () => openOrgDayModal(+td.dataset.worker, td.dataset.name, td.dataset.date)));
+    box.querySelectorAll('[data-bcm]').forEach((b) =>
+      b.addEventListener('click', () => { state.bizCalMode = b.dataset.bcm; renderBusiness(); }));
+    const openCell = (td) => mode === 'schedule'
+      ? openScheduleModal(+td.dataset.worker, td.dataset.name, td.dataset.date, schedMap[`${td.dataset.worker}_${td.dataset.date}`])
+      : openOrgDayModal(+td.dataset.worker, td.dataset.name, td.dataset.date);
+    box.querySelectorAll('td.day-cell').forEach((td) => td.addEventListener('click', () => openCell(td)));
     box.querySelectorAll('td.name-col').forEach((td) =>
-      td.addEventListener('click', () => openOrgDayModal(+td.dataset.worker, td.dataset.name, todayStr())));
+      td.addEventListener('click', () => mode === 'schedule'
+        ? openScheduleModal(+td.dataset.worker, td.dataset.name, todayStr(), schedMap[`${td.dataset.worker}_${todayStr()}`])
+        : openOrgDayModal(+td.dataset.worker, td.dataset.name, todayStr())));
+    box.querySelectorAll('[data-roster]').forEach((r) =>
+      r.addEventListener('click', () => openOrgDayModal(+r.dataset.roster, r.dataset.name, todayStr())));
+  }
+
+  // Smena rejalash oynasi
+  function openScheduleModal(userId, name, date, existing) {
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${esc(name)} — ${dayTitle(date)}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <b style="font-size:14px">${t('planShift')}</b>
+      <div class="entry-edit-row" style="margin-top:8px">
+        <div style="flex:1"><label style="margin-top:0">${t('shiftStart')}</label><input type="time" id="sc-start" value="${existing ? existing.start : '09:00'}"></div>
+        <div style="flex:1"><label style="margin-top:0">${t('shiftEnd')}</label><input type="time" id="sc-end" value="${existing ? existing.end : '18:00'}"></div>
+      </div>
+      <label>${t('shiftNote')}</label>
+      <input id="sc-note" value="${existing?.note ? esc(existing.note) : ''}" placeholder="...">
+      <div class="error-text" id="sc-error"></div>
+      <button class="btn" id="sc-save">${t('save')}</button>
+      ${existing ? `<button class="btn ghost" id="sc-del" style="color:var(--red);margin-top:6px">🗑</button>` : ''}
+    `);
+    const err = modal.querySelector('#sc-error');
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelector('#sc-save').addEventListener('click', async () => {
+      err.textContent = '';
+      try {
+        await api('/api/org/schedule', {
+          method: 'POST',
+          body: { userId, date, start: modal.querySelector('#sc-start').value, end: modal.querySelector('#sc-end').value, note: modal.querySelector('#sc-note').value || null },
+        });
+        toast(t('saved'), 'success');
+        closeModal();
+        renderBusiness();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+    modal.querySelector('#sc-del')?.addEventListener('click', async () => {
+      try {
+        await api(`/api/org/schedule/${existing.id}`, { method: 'DELETE' });
+        toast(t('deleted'), 'success');
+        closeModal();
+        renderBusiness();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
   }
 
   async function openOrgDayModal(userId, name, date) {
@@ -2294,6 +2473,7 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
+    loadRates(); // fon rejimida valyuta kurslarini yangilaydi
     const joinMatch = location.pathname.match(/^\/join\/([\w:.-]+)/);
     if (joinMatch) state.joinToken = joinMatch[1];
 

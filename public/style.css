@@ -675,3 +675,43 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 [data-theme="kakaodark"] table.summary th, [data-theme="kakaodark"] table.summary th.name-col { background: #2e2720; }
 [data-theme="kakaodark"] table.summary td.day-cell { color: #5d5348; }
 [data-theme="kakaodark"] .toast { background: #FEE500; color: #241a16; }
+
+/* ---------- Summa toshib ketmasligi + kattaroq tugmalar ---------- */
+.hero-mini .hm-stats { min-width: 0; }
+.hero-mini .hm-stats b { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hero-mini .hm-time { white-space: nowrap; }
+.sal-row b, .sal-row span:last-child { text-align: right; word-break: keep-all; white-space: nowrap; }
+.sal-row .muted { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.fin-row .amt { flex-shrink: 0; }
+
+/* Ish joyi kartasidagi "keldim/ketdim" tugmalari kattaroq */
+.wp-btn { padding: 13px 20px; font-size: 15.5px; min-height: 48px; }
+/* Moliya segment tugmalari kattaroq */
+.segment button { min-height: 44px; }
+/* Sana/vaqt qo'shish tugmalari */
+.entry-edit-row .chip, .modal .chip { min-height: 40px; padding: 9px 14px; }
+.modal-head .chip { min-width: 40px; }
+
+/* Yillik statistika jadvali */
+.year-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); gap: 8px; }
+.year-cell {
+  background: var(--bg); border-radius: 12px; padding: 10px; text-align: center;
+}
+.year-cell .ym { font-size: 12px; font-weight: 700; color: var(--muted); }
+.year-cell .yh { font-size: 15px; font-weight: 800; margin-top: 3px; }
+.year-cell .yn { font-size: 12px; font-weight: 700; color: var(--green); font-variant-numeric: tabular-nums; }
+.year-total-card { border: 2px solid var(--accent); }
+
+/* Reja (smena) */
+.sched-row {
+  display: flex; align-items: center; gap: 10px; padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+}
+.sched-row:last-child { border-bottom: none; }
+.sched-row .sd { font-weight: 800; font-size: 14px; min-width: 62px; }
+.sched-row .st { flex: 1; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.sched-day-cell.planned { background: var(--accent-soft); }
+.sched-day-cell.planned .d { color: var(--accent); }
+
+/* Segment / calendar toggle */
+.cal-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
