@@ -1,7 +1,7 @@
 # ⏱ LaLaKu Vaqt — ish vaqti va moliya SaaS platformasi
 
 Koreyada ishlaydiganlar uchun: ish vaqtini hisoblash, jonli maosh hisobi (soliq ayrilgan holda),
-qarz-chiqimlar nazorati va oshxonalar uchun jamoa boshqaruvi. 3 tilda: o'zbek / English / 한국어.
+qarz-chiqimlar nazorati va oshxonalar uchun jamoa boshqaruvi. 10 tilda: o'zbek / English / Русский / 한국어 / Tiếng Việt / မြန်မာ / हिन्दी / 中文 / Қазақша / Кыргызча. Valyutani jonli aylantirish (KRW→USD/UZS/...).
 
 ## Akkaunt turlari
 
