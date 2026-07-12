@@ -18,7 +18,12 @@ const DEFAULT_TZ = process.env.TIMEZONE || 'Asia/Seoul';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const DATABASE_URL = process.env.DATABASE_URL;
 const TRIAL_DAYS = 15;
-const PRICES = { worker: 990, business: 2900 }; // KRW / oy
+const PRICES = { worker: 990, business: 2900 }; // standart, admin o'zgartira oladi
+let PRICE_OVERRIDES = {};
+async function priceFor(u) {
+  if (u.custom_price != null) return u.custom_price;
+  return PRICE_OVERRIDES[u.type] ?? PRICES[u.type];
+}
 
 if (!DATABASE_URL) {
   console.error('DATABASE_URL topilmadi. Railway\'da PostgreSQL qo\'shing yoki env o\'rnating.');
@@ -141,6 +146,11 @@ async function initDb() {
 
   await pool.query(`
     ALTER TABLE orgs ADD COLUMN IF NOT EXISTS check_mode TEXT NOT NULL DEFAULT 'qr';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS phone TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS birthdate DATE;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_price INTEGER;
+    ALTER TABLE memberships ADD COLUMN IF NOT EXISTS tax_percent NUMERIC NOT NULL DEFAULT 0;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone) WHERE phone IS NOT NULL;
     ALTER TABLE branches ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;
     ALTER TABLE branches ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;
     ALTER TABLE branches ADD COLUMN IF NOT EXISTS radius INTEGER NOT NULL DEFAULT 50;
@@ -298,8 +308,17 @@ app.use(express.static(path.join(__dirname, 'public')));
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const fail = (res, status, error, code) => res.status(status).json({ error, code });
 
+function sessionOf(req) {
+  const h = req.headers.authorization;
+  if (h && h.startsWith('Bearer ')) {
+    const s = verifyToken(h.slice(7));
+    if (s) return s;
+  }
+  return verifyToken(req.cookies.sid);
+}
+
 async function loadUser(req) {
-  const s = verifyToken(req.cookies.sid);
+  const s = sessionOf(req);
   if (!s || s.t !== 'user') return null;
   const r = await pool.query(`SELECT * FROM users WHERE id = $1`, [s.id]);
   return r.rows[0] || null;
@@ -326,7 +345,7 @@ function requireBusiness(req, res, next) {
 }
 
 function requirePlatformAdmin(req, res, next) {
-  const s = verifyToken(req.cookies.sid);
+  const s = sessionOf(req);
   if (!s || s.t !== 'padmin') return fail(res, 401, 'Admin sifatida kiring', 'AUTH_ADMIN');
   next();
 }
@@ -340,6 +359,9 @@ app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const PHONE_RE = /^\+?[0-9][0-9 -]{6,18}$/;
+const normPhone = (p) => String(p || '').replace(/[^0-9+]/g, '');
+
 app.post('/api/register', wrap(async (req, res) => {
   if (rateLimited(req.ip)) return fail(res, 429, "Urinishlar ko'p", 'RATE_LIMIT');
   const email = String((req.body || {}).email || '').trim().toLowerCase();
@@ -347,18 +369,28 @@ app.post('/api/register', wrap(async (req, res) => {
   const name = String((req.body || {}).name || '').trim();
   const type = (req.body || {}).type === 'business' ? 'business' : 'worker';
   const businessName = String((req.body || {}).businessName || '').trim();
+  const phone = normPhone((req.body || {}).phone);
+  const birthdate = String((req.body || {}).birthdate || '').trim() || null;
   if (!EMAIL_RE.test(email)) return fail(res, 400, "Email noto'g'ri", 'BAD_EMAIL');
-  if (password.length < 6) return fail(res, 400, "Parol kamida 6 belgi", 'PW_SHORT6');
+  if (phone && !PHONE_RE.test(phone)) return fail(res, 400, "Telefon raqam noto'g'ri", 'BAD_PHONE');
+  if (birthdate && !/^\d{4}-\d{2}-\d{2}$/.test(birthdate)) return fail(res, 400, "Sana noto'g'ri", 'BAD_DATE');
+  // Parol ixtiyoriy — telefon + tug'ilgan kun bo'lsa, tug'ilgan kun parol o'rnida
+  if (!password && !(phone && birthdate)) return fail(res, 400, "Parol kamida 6 belgi", 'PW_SHORT6');
+  if (password && password.length < 6) return fail(res, 400, "Parol kamida 6 belgi", 'PW_SHORT6');
   if (!name) return fail(res, 400, 'Ism kiriting', 'NAME_REQUIRED');
   if (type === 'business' && !businessName) return fail(res, 400, 'Oshxona nomini kiriting', 'BIZ_NAME_REQUIRED');
   const dup = (await pool.query(`SELECT 1 FROM users WHERE email = $1`, [email])).rows[0];
   if (dup) return fail(res, 400, "Bu email ro'yxatdan o'tgan", 'EMAIL_TAKEN');
+  if (phone) {
+    const dupP = (await pool.query(`SELECT 1 FROM users WHERE phone = $1`, [phone])).rows[0];
+    if (dupP) return fail(res, 400, "Bu telefon ro'yxatdan o'tgan", 'PHONE_TAKEN');
+  }
 
-  const hash = await bcrypt.hash(password, 10);
+  const hash = await bcrypt.hash(password || birthdate, 10);
   const u = (await pool.query(
-    `INSERT INTO users (email, password_hash, name, type, paid_until)
-     VALUES ($1, $2, $3, $4, now() + interval '${TRIAL_DAYS} days') RETURNING *`,
-    [email, hash, name, type]
+    `INSERT INTO users (email, password_hash, name, type, phone, birthdate, paid_until)
+     VALUES ($1, $2, $3, $4, $5, $6, now() + interval '${TRIAL_DAYS} days') RETURNING *`,
+    [email, hash, name, type, phone || null, birthdate]
   )).rows[0];
 
   if (type === 'business') {
@@ -376,12 +408,22 @@ app.post('/api/register', wrap(async (req, res) => {
 
 app.post('/api/login', wrap(async (req, res) => {
   if (rateLimited(req.ip)) return fail(res, 429, "Urinishlar ko'p", 'RATE_LIMIT');
-  const email = String((req.body || {}).email || '').trim().toLowerCase();
-  const password = String((req.body || {}).password || '');
-  const u = (await pool.query(`SELECT * FROM users WHERE email = $1`, [email])).rows[0];
-  if (!u || !(await bcrypt.compare(password, u.password_hash))) {
-    return fail(res, 401, "Email yoki parol noto'g'ri", 'BAD_LOGIN');
+  const { email, password, phone, birthdate } = req.body || {};
+  let u, cred;
+  if (phone) {
+    u = (await pool.query(`SELECT * FROM users WHERE phone = $1`, [normPhone(phone)])).rows[0];
+    cred = String(password || birthdate || '');
+  } else {
+    u = (await pool.query(`SELECT * FROM users WHERE email = $1`,
+      [String(email || '').trim().toLowerCase()])).rows[0];
+    cred = String(password || '');
   }
+  let ok = u && (await bcrypt.compare(cred, u.password_hash));
+  // Telefon rejimida parol kiritilgan-u mos kelmasa, tug'ilgan kun bilan ham tekshiramiz
+  if (!ok && u && phone && birthdate && password) {
+    ok = await bcrypt.compare(String(birthdate), u.password_hash);
+  }
+  if (!ok) return fail(res, 401, "Email yoki parol noto'g'ri", 'BAD_LOGIN');
   setSessionCookie(res, { t: 'user', id: u.id }, 60);
   res.json(await meJson(u));
 }));
@@ -405,12 +447,14 @@ async function meJson(u) {
   return {
     role: 'user',
     id: u.id, email: u.email, name: u.name, type: u.type,
+    phone: u.phone || '',
     timezone: u.timezone,
     payType: u.pay_type, hourlyRate: +u.hourly_rate, dailyRate: +u.daily_rate, taxPercent: +u.tax_percent,
     active: isActive(u),
     paidUntil: u.paid_until,
     daysLeft: Math.max(0, Math.ceil((new Date(u.paid_until) - Date.now()) / 86400_000)),
-    price: PRICES[u.type],
+    price: await priceFor(u),
+    token: signToken({ t: 'user', id: u.id, exp: Date.now() + 60 * 86400_000 }),
     pendingPayment: !!pending,
     org: org ? { id: org.id, name: org.name } : null,
     memberships,
@@ -419,7 +463,7 @@ async function meJson(u) {
 }
 
 app.get('/api/me', wrap(async (req, res) => {
-  const s = verifyToken(req.cookies.sid);
+  const s = sessionOf(req);
   if (s?.t === 'padmin') return res.json({ role: 'padmin' });
   const u = await loadUser(req);
   if (!u) return res.json({ role: null });
@@ -448,6 +492,15 @@ app.put('/api/profile', requireUser, wrap(async (req, res) => {
   if (timezone !== undefined) {
     if (!validTz(String(timezone))) return fail(res, 400, "Vaqt zonasi noto'g'ri", 'BAD_TZ');
     await pool.query(`UPDATE users SET timezone = $1 WHERE id = $2`, [String(timezone), req.user.id]);
+  }
+  if ((req.body || {}).phone !== undefined) {
+    const p = normPhone(req.body.phone);
+    if (p && !PHONE_RE.test(p)) return fail(res, 400, "Telefon raqam noto'g'ri", 'BAD_PHONE');
+    if (p) {
+      const dup = (await pool.query(`SELECT 1 FROM users WHERE phone = $1 AND id <> $2`, [p, req.user.id])).rows[0];
+      if (dup) return fail(res, 400, "Bu telefon band", 'PHONE_TAKEN');
+    }
+    await pool.query(`UPDATE users SET phone = $1 WHERE id = $2`, [p || null, req.user.id]);
   }
   res.json({ ok: true });
 }));
@@ -481,7 +534,7 @@ app.post('/api/payment', requireUser, wrap(async (req, res) => {
   if (pending) return fail(res, 400, "Sizda tekshirilayotgan to'lov bor", 'PAYMENT_PENDING');
   await pool.query(
     `INSERT INTO payments (user_id, amount, image, link) VALUES ($1, $2, $3, $4)`,
-    [req.user.id, PRICES[req.user.type], image, link]
+    [req.user.id, await priceFor(req.user), image, link]
   );
   res.json({ ok: true });
 }));
@@ -754,6 +807,16 @@ app.put('/api/my/entries/:id', requireUser, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Ish joyisiz (eski) shaxsiy yozuvlarni tanlangan ish joyiga o'tkazish
+app.post('/api/my/entries/assign', requireUser, wrap(async (req, res) => {
+  const jid = await validPersonalJob(req.user.id, (req.body || {}).jobId);
+  if (!jid) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  const r = await pool.query(
+    `UPDATE entries SET job_id = $1 WHERE user_id = $2 AND org_id IS NULL AND job_id IS NULL`,
+    [jid, req.user.id]);
+  res.json({ ok: true, moved: r.rowCount });
+}));
+
 app.delete('/api/my/entries/:id', requireUser, wrap(async (req, res) => {
   await pool.query(`DELETE FROM entries WHERE id = $1 AND user_id = $2 AND org_id IS NULL`,
     [parseInt(req.params.id, 10), req.user.id]);
@@ -876,7 +939,8 @@ app.get('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
     b.dataUrl = await QRCode.toDataURL(b.token, { width: 512, margin: 2 });
   }
   const members = (await pool.query(
-    `SELECT u.id, u.name, u.email, m.joined_at AS "joinedAt", m.hourly_rate::float AS "hourlyRate"
+    `SELECT u.id, u.name, u.email, m.joined_at AS "joinedAt",
+            m.hourly_rate::float AS "hourlyRate", m.tax_percent::float AS "taxPercent"
      FROM memberships m JOIN users u ON u.id = m.user_id
      WHERE m.org_id = $1 ORDER BY u.name`, [org.id])).rows;
   const pendingInvites = (await pool.query(
@@ -907,12 +971,14 @@ app.put('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
 
 // A'zoning jamoadagi soatlik stavkasi (maosh ko'rsatish uchun)
 app.put('/api/org/members/:userId', requireUser, requireBusiness, wrap(async (req, res) => {
-  const rate = Number((req.body || {}).hourlyRate);
+  const rate = Number((req.body || {}).hourlyRate ?? 0);
+  const tax = Number((req.body || {}).taxPercent ?? 0);
   if (!Number.isFinite(rate) || rate < 0 || rate > 1e9) return fail(res, 400, "Stavka noto'g'ri", 'BAD_RATE');
+  if (!Number.isFinite(tax) || tax < 0 || tax > 100) return fail(res, 400, 'Soliq 0-100 orasida', 'BAD_TAX');
   const org = await orgOf(req.user.id);
   const r = await pool.query(
-    `UPDATE memberships SET hourly_rate = $1 WHERE org_id = $2 AND user_id = $3 RETURNING user_id`,
-    [rate, org.id, parseInt(req.params.userId, 10)]);
+    `UPDATE memberships SET hourly_rate = $1, tax_percent = $2 WHERE org_id = $3 AND user_id = $4 RETURNING user_id`,
+    [rate, tax, org.id, parseInt(req.params.userId, 10)]);
   if (!r.rows[0]) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
   res.json({ ok: true });
 }));
@@ -996,7 +1062,7 @@ app.get('/api/org/summary', requireUser, requireBusiness, wrap(async (req, res) 
   const org = await orgOf(req.user.id);
   const { start, next } = monthBounds(year, month);
   const members = (await pool.query(
-    `SELECT u.id, u.name, m.hourly_rate::float AS rate
+    `SELECT u.id, u.name, m.hourly_rate::float AS rate, m.tax_percent::float AS tax
      FROM memberships m JOIN users u ON u.id = m.user_id
      WHERE m.org_id = $1 ORDER BY u.name`, [org.id])).rows;
   const sums = (await pool.query(
@@ -1013,7 +1079,7 @@ app.get('/api/org/summary', requireUser, requireBusiness, wrap(async (req, res) 
       const days = byUser[m.id] || {};
       const totalMinutes = Object.values(days).reduce((a, d) => a + d.minutes, 0);
       return { id: m.id, name: m.name, days, totalMinutes,
-               earned: m.rate > 0 ? Math.round(totalMinutes / 60 * m.rate) : null };
+               earned: m.rate > 0 ? Math.round(totalMinutes / 60 * m.rate * (1 - (m.tax || 0) / 100)) : null };
     }),
   });
 }));
@@ -1024,7 +1090,7 @@ app.get('/api/org/board', requireUser, requireBusiness, wrap(async (req, res) =>
   const tz = req.user.timezone;
   const today = localDate(tz);
   const rows = (await pool.query(
-    `SELECT u.id, u.name, m.hourly_rate::float AS rate,
+    `SELECT u.id, u.name, m.hourly_rate::float AS rate, m.tax_percent::float AS tax,
             COALESCE(SUM(ROUND(EXTRACT(EPOCH FROM (COALESCE(e.check_out, now()) - e.check_in)) / 60)), 0)::int AS minutes,
             BOOL_OR(e.check_out IS NULL) AS open,
             MIN(e.check_in) AS first_in
@@ -1032,14 +1098,14 @@ app.get('/api/org/board', requireUser, requireBusiness, wrap(async (req, res) =>
      JOIN users u ON u.id = m.user_id
      LEFT JOIN entries e ON e.user_id = u.id AND e.org_id = $1 AND e.work_date = $2
      WHERE m.org_id = $1
-     GROUP BY u.id, m.hourly_rate ORDER BY u.name`, [org.id, today])).rows;
+     GROUP BY u.id, m.hourly_rate, m.tax_percent ORDER BY u.name`, [org.id, today])).rows;
   res.json({
     date: today, time: localTime(tz),
     workers: rows.map((r) => ({
       id: r.id, name: r.name, minutes: r.minutes,
       status: r.open ? 'in' : (r.minutes > 0 ? 'out' : 'none'),
       since: r.first_in ? localTime(tz, r.first_in) : null,
-      earned: r.rate > 0 ? Math.round(r.minutes / 60 * r.rate) : null,
+      earned: r.rate > 0 ? Math.round(r.minutes / 60 * r.rate * (1 - (r.tax || 0) / 100)) : null,
     })),
   });
 }));
@@ -1192,19 +1258,54 @@ app.put('/api/admin/users/:id', requirePlatformAdmin, wrap(async (req, res) => {
   res.json(r.rows[0]);
 }));
 
+app.get('/api/admin/prices', requirePlatformAdmin, wrap(async (req, res) => {
+  res.json({
+    worker: PRICE_OVERRIDES.worker ?? PRICES.worker,
+    business: PRICE_OVERRIDES.business ?? PRICES.business,
+  });
+}));
+
+app.put('/api/admin/prices', requirePlatformAdmin, wrap(async (req, res) => {
+  const w = parseInt((req.body || {}).worker, 10);
+  const b = parseInt((req.body || {}).business, 10);
+  if (!Number.isFinite(w) || w < 0 || w > 1e7 || !Number.isFinite(b) || b < 0 || b > 1e7) {
+    return fail(res, 400, "Narx noto'g'ri", 'BAD_AMOUNT');
+  }
+  await pool.query(`INSERT INTO settings (key, value) VALUES ('price_worker', $1)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [String(w)]);
+  await pool.query(`INSERT INTO settings (key, value) VALUES ('price_business', $1)
+    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [String(b)]);
+  PRICE_OVERRIDES = { worker: w, business: b };
+  res.json({ ok: true });
+}));
+
+// Foydalanuvchiga maxsus narx (null = umumiy narx)
+app.put('/api/admin/users/:id/price', requirePlatformAdmin, wrap(async (req, res) => {
+  const v = (req.body || {}).customPrice;
+  const price = v === null || v === '' ? null : parseInt(v, 10);
+  if (price !== null && (!Number.isFinite(price) || price < 0 || price > 1e7)) {
+    return fail(res, 400, "Narx noto'g'ri", 'BAD_AMOUNT');
+  }
+  const r = await pool.query(`UPDATE users SET custom_price = $1 WHERE id = $2 RETURNING id`,
+    [price, parseInt(req.params.id, 10)]);
+  if (!r.rows[0]) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  res.json({ ok: true });
+}));
+
 app.get('/api/admin/payments', requirePlatformAdmin, wrap(async (req, res) => {
-  const status = ['pending', 'approved', 'rejected'].includes(req.query.status) ? req.query.status : 'pending';
+  const status = ['pending', 'approved', 'rejected', 'history'].includes(req.query.status) ? req.query.status : 'pending';
   const r = await pool.query(
-    `SELECT p.id, p.amount, p.image, p.link, p.status, p.created_at AS "createdAt",
+    `SELECT p.id, p.amount, p.image, p.link, p.status, p.created_at AS "createdAt", p.decided_at AS "decidedAt",
             u.id AS "userId", u.email, u.name, u.type
      FROM payments p JOIN users u ON u.id = p.user_id
-     WHERE p.status = $1 ORDER BY p.created_at DESC LIMIT 50`, [status]);
+     WHERE ($1 = 'history' AND p.status <> 'pending') OR p.status = $1
+     ORDER BY COALESCE(p.decided_at, p.created_at) DESC LIMIT 80`, [status]);
   res.json(r.rows);
 }));
 
 app.post('/api/admin/payments/:id/approve', requirePlatformAdmin, wrap(async (req, res) => {
   const p = (await pool.query(
-    `UPDATE payments SET status = 'approved', decided_at = now()
+    `UPDATE payments SET status = 'approved', decided_at = now(), image = NULL
      WHERE id = $1 AND status = 'pending' RETURNING user_id`, [parseInt(req.params.id, 10)])).rows[0];
   if (!p) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
   await pool.query(
@@ -1215,7 +1316,7 @@ app.post('/api/admin/payments/:id/approve', requirePlatformAdmin, wrap(async (re
 
 app.post('/api/admin/payments/:id/reject', requirePlatformAdmin, wrap(async (req, res) => {
   await pool.query(
-    `UPDATE payments SET status = 'rejected', decided_at = now() WHERE id = $1 AND status = 'pending'`,
+    `UPDATE payments SET status = 'rejected', decided_at = now(), image = NULL WHERE id = $1 AND status = 'pending'`,
     [parseInt(req.params.id, 10)]);
   res.json({ ok: true });
 }));
@@ -1234,6 +1335,10 @@ app.use((err, req, res, next) => {
 initDb()
   .then(async () => {
     SESSION_SECRET = (await pool.query(`SELECT value FROM settings WHERE key = 'session_secret'`)).rows[0].value;
+    const pw = (await pool.query(`SELECT value FROM settings WHERE key = 'price_worker'`)).rows[0];
+    const pb = (await pool.query(`SELECT value FROM settings WHERE key = 'price_business'`)).rows[0];
+    if (pw) PRICE_OVERRIDES.worker = parseInt(pw.value, 10);
+    if (pb) PRICE_OVERRIDES.business = parseInt(pb.value, 10);
     app.listen(PORT, () => console.log(`LaLaKu Vaqt ${PORT}-portda ishlamoqda`));
   })
   .catch((e) => {

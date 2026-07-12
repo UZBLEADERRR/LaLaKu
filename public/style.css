@@ -620,3 +620,58 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 
 .btn-row { display: flex; gap: 10px; margin-bottom: 14px; }
 .btn-row .btn { font-size: 14px; padding: 13px 8px; }
+
+/* ---------- Sozlamalar qatorlari ---------- */
+.set-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 13px 0; border-bottom: 1px solid var(--line);
+  font-weight: 700; font-size: 14.5px; cursor: pointer;
+}
+.set-row:last-child { border-bottom: none; }
+
+.dot-kakaodark { background: linear-gradient(135deg, #241a16 55%, #FEE500 55%); }
+
+/* ================= Kakao tungi mavzusi ================= */
+:root[data-theme="kakaodark"] {
+  --bg: #1b1512;
+  --card: #262019;
+  --text: #f4ecdf;
+  --muted: #a2988a;
+  --line: #38302a;
+  --accent: #FEE500;
+  --accent-2: #FEE500;
+  --accent-soft: #3a3220;
+  --green: #4ade80; --green-soft: #1d3324;
+  --red: #f87171; --red-soft: #3d2323;
+  --amber: #fbbf24; --amber-soft: #3a2f1a;
+  --shadow: none; --shadow-sm: none;
+}
+[data-theme="kakaodark"] .card, [data-theme="kakaodark"] .stat, [data-theme="kakaodark"] .board-row,
+[data-theme="kakaodark"] .wp-card, [data-theme="kakaodark"] .worker-item, [data-theme="kakaodark"] .table-wrap,
+[data-theme="kakaodark"] .tab, [data-theme="kakaodark"] .branch-chip {
+  box-shadow: none; border: 1px solid var(--line);
+}
+[data-theme="kakaodark"] .btn { background: #FEE500; color: #241a16; box-shadow: none; }
+[data-theme="kakaodark"] .btn.ghost { background: transparent; border: none; }
+[data-theme="kakaodark"] .btn.outline { background: transparent; color: #FEE500; border: 1.5px solid #FEE500; }
+[data-theme="kakaodark"] .btn.red { background: #e5484d; color: #fff; }
+[data-theme="kakaodark"] .brand .logo { background: #FEE500; color: #241a16; box-shadow: none; }
+[data-theme="kakaodark"] .hero-mini, [data-theme="kakaodark"] .hero-login, [data-theme="kakaodark"] .hero {
+  background: #FEE500; color: #241a16; box-shadow: none;
+}
+[data-theme="kakaodark"] .hero-login h1, [data-theme="kakaodark"] .hero-login p { color: #241a16; }
+[data-theme="kakaodark"] .hero-mini.working, [data-theme="kakaodark"] .hero.working { background: #103a2b; color: #d9fbe8; }
+[data-theme="kakaodark"] .wp-btn.start { background: #FEE500; color: #241a16; }
+[data-theme="kakaodark"] .tab.active, [data-theme="kakaodark"] .branch-chip.active { background: #FEE500; color: #241a16; border-color: #FEE500; }
+[data-theme="kakaodark"] input, [data-theme="kakaodark"] select { background: #2e2720; border-color: #443a31; }
+[data-theme="kakaodark"] .chip.gray, [data-theme="kakaodark"] .segment, [data-theme="kakaodark"] .modal-close,
+[data-theme="kakaodark"] .theme-chip, [data-theme="kakaodark"] .lang-sel { background-color: #332b23; color: var(--muted); }
+[data-theme="kakaodark"] .segment button.active { background: #453a2c; color: var(--text); }
+[data-theme="kakaodark"] .cal-cell { background: #2e2720; }
+[data-theme="kakaodark"] .cal-cell.worked { background: var(--green-soft); }
+[data-theme="kakaodark"] .cal-cell.open-day { background: var(--amber-soft); }
+[data-theme="kakaodark"] .bottom-nav { background: rgba(27, 21, 18, .92); }
+[data-theme="kakaodark"] .bottom-nav button.active { color: #FEE500; }
+[data-theme="kakaodark"] table.summary th, [data-theme="kakaodark"] table.summary th.name-col { background: #2e2720; }
+[data-theme="kakaodark"] table.summary td.day-cell { color: #5d5348; }
+[data-theme="kakaodark"] .toast { background: #FEE500; color: #241a16; }
