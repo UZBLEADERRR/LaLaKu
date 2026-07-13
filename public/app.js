@@ -1,4 +1,4 @@
-/* LaLaKu Vaqt — mijoz ilovasi (SaaS) */
+/* AlbaFit — mijoz ilovasi (SaaS) */
 (() => {
   const $app = document.getElementById('app');
   const $nav = document.getElementById('bottom-nav');
@@ -59,6 +59,19 @@
     const num = new Intl.NumberFormat(LOCALES[LANG], { maximumFractionDigits: dec }).format(Math.abs(val));
     const sign = krw < 0 ? '−' : '';
     // Belgi oldinda (₩$¥₹₽₫₸) yoki keyin (so'm, сом, K)
+    return /^[A-Za-zА-Яа-яʻ']/.test(sym) ? `${sign}${num} ${sym}` : `${sign}${sym}${num}`;
+  }
+  // Statistik kartalar uchun ixcham ko'rinish (masalan ₩1.4M) — katta summalar sig'ishi uchun
+  function fmtMoneyShort(krw) {
+    const rate = RATES[CUR] || 1;
+    const val = Math.abs(krw * rate);
+    const sym = CURRENCIES[CUR];
+    const sign = krw < 0 ? '−' : '';
+    let num;
+    if (val >= 1e9) num = (val / 1e9).toFixed(val >= 1e10 ? 0 : 1).replace(/\.0$/, '') + 'B';
+    else if (val >= 1e6) num = (val / 1e6).toFixed(val >= 1e7 ? 0 : 1).replace(/\.0$/, '') + 'M';
+    else if (val >= 1e4) num = (val / 1e3).toFixed(0) + 'K';
+    else num = new Intl.NumberFormat(LOCALES[LANG], { maximumFractionDigits: 0 }).format(val);
     return /^[A-Za-zА-Яа-яʻ']/.test(sym) ? `${sign}${num} ${sym}` : `${sign}${sym}${num}`;
   }
 
@@ -416,8 +429,9 @@
   };
   document.getElementById('scanner-cancel').addEventListener('click', () => scanner.close());
 
+  const APP_NAME = 'AlbaFit';
   const brandHtml = (sub) => `
-    <div class="brand"><div class="logo">⏱</div><div>LaLaKu Vaqt${sub ? `<small>${esc(sub)}</small>` : ''}</div></div>`;
+    <div class="brand"><div class="logo">⏱</div><div>${APP_NAME}${sub ? `<small>${esc(sub)}</small>` : ''}</div></div>`;
 
   // ================================================================
   //  AUTH (login / signup)
@@ -1019,7 +1033,7 @@
       <div class="stat-row">
         <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthHours', MONTHS()[month - 1])}</div></div>
         <div class="stat"><div class="value">${summary.daysWorked}</div><div class="label">${t('daysWorked')}</div></div>
-        ${e.hasRate ? `<div class="stat"><div class="value" style="color:var(--green)">${fmtMoney(e.net)}</div><div class="label">${t('earnedFrom')}</div></div>` : ''}
+        ${e.hasRate ? `<div class="stat"><div class="value" style="color:var(--green)">${fmtMoneyShort(e.net)}</div><div class="label">${t('earnedFrom')}</div></div>` : ''}
       </div>
 
       <div class="card">
@@ -1102,7 +1116,7 @@
       <div class="stat-row">
         <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthHours', MONTHS()[month - 1])}</div></div>
         <div class="stat"><div class="value">${summary.daysWorked}</div><div class="label">${t('daysWorked')}</div></div>
-        <div class="stat"><div class="value" style="color:var(--green)">${fmtMoney(computeEarnings(summary, jobs).net)}</div><div class="label">${t('monthNetShort')}</div></div>
+        <div class="stat"><div class="value" style="color:var(--green)">${fmtMoneyShort(computeEarnings(summary, jobs).net)}</div><div class="label">${t('monthNetShort')}</div></div>
       </div>
       <div class="card">
         ${calendarHtml(summary, year, month)}
@@ -1441,7 +1455,7 @@
     const due = reminders.filter((r) => r.days <= 0);
     if (!due.length) return;
     try {
-      new Notification('LaLaKu Vaqt', {
+      new Notification(APP_NAME, {
         body: due.map((d) => `${d.title}: ${fmtMoney(d.amount)}`).join('\n'),
         icon: '/icons/icon-192.png',
       });
@@ -1853,8 +1867,8 @@
           <div class="info">
             <div class="name">${esc(w.name)}</div>
             <div class="meta">
-              ${w.status === 'in' ? `<span class="status-tag in"><span class="pulse-dot"></span>${t('inTag')}</span> ${t('sinceTime', w.since)}`
-                : w.status === 'out' ? `<span class="status-tag out">${t('leftTag')}</span> ${t('arrivedTime', w.since)}`
+              ${w.status === 'in' ? `<span class="status-tag in"><span class="pulse-dot"></span>${t('inTag')}</span>${w.since ? ` ${t('sinceTime', w.since)}` : ''}`
+                : w.status === 'out' ? `<span class="status-tag out">${t('leftTag')}</span>${w.since ? ` ${t('arrivedTime', w.since)}` : ''}`
                 : `<span class="status-tag none">${t('absentTag')}</span>`}
             </div>
           </div>
@@ -1878,45 +1892,56 @@
     const schedMap = {};
     for (const s of sched.schedules) schedMap[`${s.userId}_${s.date}`] = s;
 
-    const headCells = [];
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dow = new Date(year, month - 1, d).getDay();
-      headCells.push(`<th class="${dow === 0 || dow === 6 ? 'wknd' : ''}">${d}<br><span style="font-weight:700;opacity:.75">${DOWS()[(dow + 6) % 7]}</span></th>`);
-    }
-    const rows = data.workers.map((w) => {
-      let cells = '';
-      for (let d = 1; d <= daysInMonth; d++) {
-        const date = `${year}-${pad(month)}-${pad(d)}`;
-        if (mode === 'schedule') {
-          const sc = schedMap[`${w.id}_${date}`];
-          cells += `<td class="day-cell ${sc ? 'has' : ''}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${sc ? `${sc.start}<br>${sc.end}` : '·'}</td>`;
-        } else {
-          const dd = w.days[date];
-          const cls = dd ? (dd.open ? 'day-cell open' : 'day-cell has') : 'day-cell';
-          cells += `<td class="${cls}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${dd ? fmtH(dd.minutes) : '·'}</td>`;
-        }
-      }
-      const totalCell = mode === 'schedule' ? '' :
-        `<td class="total-col">${fmtH(w.totalMinutes)}${w.earned != null ? `<br><span style="font-size:11px">${fmtMoney(w.earned)}</span>` : ''}</td>`;
-      return `<tr>
-        <td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}</td>
-        ${cells}${totalCell}</tr>`;
-    }).join('');
     const grandTotal = data.workers.reduce((a, w) => a + w.totalMinutes, 0);
 
-    // Ishchilar ro'yxati (jami soat + daromad) — umumiy ko'rinish
-    const rosterHtml = data.workers.length ? `
-      <div class="card">
-        <div class="modal-head" style="margin-bottom:8px"><h2 style="margin:0">${t('rosterTitle')}</h2>
-          <span class="muted"><b style="color:var(--accent)">${fmtH(grandTotal)}</b> ${t('hUnit')}</span></div>
-        ${data.workers.map((w) => `
-          <div class="fin-row" data-roster="${w.id}" data-name="${esc(w.name)}" style="cursor:pointer">
-            <span class="avatar" style="background:${avatarColor(w.name)};width:38px;height:38px;font-size:13px">${esc(initials(w.name))}</span>
+    // WORKED rejimi — har bir ishchi uchun vertikal karta (gorizontal scroll yo'q)
+    const workedHtml = data.workers.length ? `
+      <div class="card grand-bar"><span>${t('rosterTitle')}</span>
+        <span><b style="color:var(--accent)">${fmtH(grandTotal)}</b> ${t('hUnit')}</span></div>
+      ${data.workers.map((w) => {
+        const dayKeys = Object.keys(w.days || {}).sort();
+        const dayRows = dayKeys.map((date) => {
+          const dd = w.days[date];
+          const dnum = +date.split('-')[2];
+          const dow = new Date(year, month - 1, dnum).getDay();
+          return `<div class="wd-row ${dd.open ? 'open' : ''}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">
+            <span class="wd-date ${dow === 0 || dow === 6 ? 'wknd' : ''}">${dnum}<small>${DOWS()[(dow + 6) % 7]}</small></span>
+            <span class="wd-h">${fmtH(dd.minutes)}${dd.open ? ' <span class="wd-live">●</span>' : ''}</span>
+          </div>`;
+        }).join('');
+        return `<div class="card worker-cal">
+          <div class="wc-head" data-worker="${w.id}" data-name="${esc(w.name)}">
+            <span class="avatar" style="background:${avatarColor(w.name)};width:40px;height:40px;font-size:14px">${esc(initials(w.name))}</span>
             <div class="info"><div class="name">${esc(w.name)}</div>
-              <div class="sub">${fmtH(w.totalMinutes)} ${t('hUnit')}${w.days && Object.keys(w.days).length ? ` · ${Object.keys(w.days).length} ${t('dUnit')}` : ''}</div></div>
-            ${w.earned != null ? `<b style="color:var(--green)">${fmtMoney(w.earned)}</b>` : ''}
-          </div>`).join('')}
-      </div>` : '';
+              <div class="sub">${dayKeys.length} ${t('dUnit')}</div></div>
+            <div class="wc-tot"><div class="v">${fmtH(w.totalMinutes)}</div>${w.earned != null ? `<div class="e">${fmtMoneyShort(w.earned)}</div>` : ''}</div>
+          </div>
+          ${dayRows ? `<div class="wc-days">${dayRows}</div>` : `<p class="muted" style="margin:10px 2px 2px;font-size:13px">${t('noRecords')}</p>`}
+        </div>`;
+      }).join('')}` : `<div class="card"><p class="muted">${t('noMembers')}</p></div>`;
+
+    // SCHEDULE rejimi — jadval (istalgan kunni bosib reja qo'shish uchun)
+    let scheduleHtml = `<div class="card"><p class="muted">${t('noMembers')}</p></div>`;
+    if (data.workers.length) {
+      const headCells = [];
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dow = new Date(year, month - 1, d).getDay();
+        headCells.push(`<th class="${dow === 0 || dow === 6 ? 'wknd' : ''}">${d}<br><span style="font-weight:700;opacity:.75">${DOWS()[(dow + 6) % 7]}</span></th>`);
+      }
+      const rows = data.workers.map((w) => {
+        let cells = '';
+        for (let d = 1; d <= daysInMonth; d++) {
+          const date = `${year}-${pad(month)}-${pad(d)}`;
+          const sc = schedMap[`${w.id}_${date}`];
+          cells += `<td class="day-cell ${sc ? 'has' : ''}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${sc ? `${sc.start}<br>${sc.end}` : '·'}</td>`;
+        }
+        return `<tr><td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}</td>${cells}</tr>`;
+      }).join('');
+      scheduleHtml = `<div class="table-wrap"><table class="summary">
+          <thead><tr><th class="name-col">${t('workerCol')}</th>${headCells.join('')}</tr></thead>
+          <tbody>${rows}</tbody></table></div>
+        <p class="muted" style="margin:10px 4px 14px">${t('noSchedule')}</p>`;
+    }
 
     box.innerHTML = `
       <div class="cal-toggle">
@@ -1927,30 +1952,21 @@
         <div class="cal-title">${calTitle(year, month)}</div>
         <div class="cal-nav"><button id="cal-prev">‹</button><button id="cal-next">›</button></div>
       </div>
-      ${data.workers.length ? `
-      <div class="table-wrap">
-        <table class="summary">
-          <thead><tr><th class="name-col">${t('workerCol')}</th>${headCells.join('')}${mode === 'worked' ? `<th class="total-col">${t('totalCol')}</th>` : ''}</tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-      <p class="muted" style="margin:10px 4px 14px">${mode === 'schedule' ? t('noSchedule') : t('tableHint')}</p>
-      ` : `<div class="card"><p class="muted">${t('noMembers')}</p></div>`}
-      ${mode === 'worked' ? rosterHtml : ''}
+      ${mode === 'schedule' ? scheduleHtml : workedHtml}
     `;
     bindCalendarNav(renderBusiness);
     box.querySelectorAll('[data-bcm]').forEach((b) =>
       b.addEventListener('click', () => { state.bizCalMode = b.dataset.bcm; renderBusiness(); }));
-    const openCell = (td) => mode === 'schedule'
-      ? openScheduleModal(+td.dataset.worker, td.dataset.name, td.dataset.date, schedMap[`${td.dataset.worker}_${td.dataset.date}`])
-      : openOrgDayModal(+td.dataset.worker, td.dataset.name, td.dataset.date);
-    box.querySelectorAll('td.day-cell').forEach((td) => td.addEventListener('click', () => openCell(td)));
-    box.querySelectorAll('td.name-col').forEach((td) =>
-      td.addEventListener('click', () => mode === 'schedule'
-        ? openScheduleModal(+td.dataset.worker, td.dataset.name, todayStr(), schedMap[`${td.dataset.worker}_${todayStr()}`])
-        : openOrgDayModal(+td.dataset.worker, td.dataset.name, todayStr())));
-    box.querySelectorAll('[data-roster]').forEach((r) =>
-      r.addEventListener('click', () => openOrgDayModal(+r.dataset.roster, r.dataset.name, todayStr())));
+    // Reja rejimi jadvali
+    box.querySelectorAll('td.day-cell').forEach((td) => td.addEventListener('click', () =>
+      openScheduleModal(+td.dataset.worker, td.dataset.name, td.dataset.date, schedMap[`${td.dataset.worker}_${td.dataset.date}`])));
+    box.querySelectorAll('td.name-col').forEach((td) => td.addEventListener('click', () =>
+      openScheduleModal(+td.dataset.worker, td.dataset.name, todayStr(), schedMap[`${td.dataset.worker}_${todayStr()}`])));
+    // Worked rejimi vertikal kartalar
+    box.querySelectorAll('.wc-head').forEach((h) => h.addEventListener('click', () =>
+      openOrgDayModal(+h.dataset.worker, h.dataset.name, todayStr())));
+    box.querySelectorAll('.wd-row').forEach((r) => r.addEventListener('click', () =>
+      openOrgDayModal(+r.dataset.worker, r.dataset.name, r.dataset.date)));
   }
 
   // Smena rejalash oynasi
@@ -2062,7 +2078,6 @@
     box.innerHTML = `
       <div class="card" style="max-width:600px">
         <h2>${t('inviteTitle')}</h2>
-        <p class="muted">${t('linkAlt')} ${t('inviteNote')}</p>
         <div class="invite-box" id="invite-url">${esc(inviteUrl)}</div>
         <div style="display:flex;gap:8px;margin-top:12px">
           <button class="btn outline" id="invite-copy">${t('inviteCopy')}</button>
@@ -2072,7 +2087,6 @@
       <button class="btn outline" id="go-qr" style="max-width:600px;margin-bottom:14px">${t('tabQr')}</button>
       <div class="card" style="max-width:600px">
         <h2>${t('inviteById')}</h2>
-        <p class="muted">${t('inviteByIdNote')}</p>
         <form id="inv-form">
           <div class="form-row" style="margin-top:10px">
             <input id="inv-q" placeholder="${t('idPh')}">
