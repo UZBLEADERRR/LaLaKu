@@ -141,6 +141,40 @@
       );
     });
   }
+  // Ikki nuqta orasidagi masofa (metr) — haversine
+  function distMeters(la1, lo1, la2, lo2) {
+    const R = 6371000, toRad = (d) => (d * Math.PI) / 180;
+    const dLa = toRad(la2 - la1), dLo = toRad(lo2 - lo1);
+    const a = Math.sin(dLa / 2) ** 2 + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLo / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+  }
+  function stopGeoWatch() {
+    if (state.geoWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(state.geoWatchId);
+    state.geoWatchId = null;
+  }
+  // Avto-chiqish: ish joyi radiusidan uzoqlashsa avtomatik "ishdan ketti" belgilaydi
+  function startAutoCheckout(status, onDone) {
+    stopGeoWatch();
+    if (!(status.checkedIn && status.autoCheckout && status.geofences && status.geofences.length && navigator.geolocation)) return;
+    let outCount = 0;
+    state.geoWatchId = navigator.geolocation.watchPosition((p) => {
+      const { latitude: la, longitude: lo, accuracy = 0 } = p.coords;
+      const inside = status.geofences.some((g) => distMeters(la, lo, g.lat, g.lng) <= (g.radius || 50) + Math.min(accuracy, 30));
+      if (inside) { outCount = 0; return; }
+      // GPS sakrashlaridan himoya — ketgуndeb belgilashdan oldin 2 marta uzoqda bo'lsin
+      if (++outCount < 2) return;
+      stopGeoWatch();
+      api('/api/punch', { method: 'POST', body: {} }).then((r) => {
+        if (r.action === 'out') {
+          toast(t('autoLeftMsg'), 'success', 6000);
+          if (localStorage.getItem('lalaku_notif') === '1' && 'Notification' in window && Notification.permission === 'granted') {
+            try { new Notification(APP_NAME, { body: t('autoLeftMsg') }); } catch {}
+          }
+          onDone && onDone();
+        }
+      }).catch(() => {});
+    }, () => {}, { enableHighAccuracy: true, maximumAge: 15000, timeout: 20000 });
+  }
 
   const ICONS = {
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.8V21h14V9.8"/></svg>',
@@ -160,6 +194,7 @@
     padTab: 'payments',
     joinToken: null,
     timerId: null,
+    geoWatchId: null,
   };
 
   // ---------- Akkauntlar (bitta qurilmada bir nechta, Telegram kabi) ----------
@@ -304,6 +339,7 @@
   }
   function stopTimers() {
     if (state.timerId) { clearInterval(state.timerId); state.timerId = null; }
+    stopGeoWatch();
   }
 
   // Ish haqi hisobi: har bir ish joyi (job) o'z stavkasi bilan,
@@ -845,6 +881,7 @@
       };
       upd();
       state.timerId = setInterval(upd, 15_000);
+      startAutoCheckout(status, renderWorker);
     }
 
     const doAction = async (fn) => {
@@ -2323,6 +2360,19 @@
           <button data-cm="qr" class="${org.checkMode !== 'button' ? 'active' : ''}">${t('modeQr')}</button>
           <button data-cm="button" class="${org.checkMode === 'button' ? 'active' : ''}">${t('modeButton')}</button>
         </div>
+        <div class="set-row">
+          <span>${t('autoCheckoutRow')}</span>
+          <button class="chip ${org.autoCheckout ? '' : 'gray'}" id="auto-co">${org.autoCheckout ? t('on') : t('off')}</button>
+        </div>
+        <p class="muted" style="font-size:12px;margin:2px 0 0">${t('autoCheckoutNote')}</p>
+        <div class="set-row" style="border-top:1px solid var(--line);margin-top:10px;padding-top:12px">
+          <span>${t('ipVerifyRow')}${org.allowedIp ? `<br><small class="muted">${esc(org.allowedIp)}</small>` : ''}</span>
+          <div style="display:flex;gap:6px">
+            <button class="chip" id="ip-save">${org.allowedIp ? t('ipUpdate') : t('ipSave')}</button>
+            ${org.allowedIp ? `<button class="chip red" id="ip-clear">✕</button>` : ''}
+          </div>
+        </div>
+        <p class="muted" style="font-size:12px;margin:2px 0 0">${t('ipVerifyNote')}</p>
       </div>
       <button class="btn outline" id="go-qr" style="max-width:600px;margin-bottom:14px">${t('tabQr')}</button>
       <div class="card" style="max-width:600px">
@@ -2393,6 +2443,27 @@
           renderBusiness();
         } catch (ex) { toast(terr(ex), 'error'); }
       }));
+    document.getElementById('auto-co').addEventListener('click', async () => {
+      try {
+        await api('/api/org', { method: 'PUT', body: { autoCheckout: !org.autoCheckout } });
+        toast(t('saved'), 'success');
+        renderBusiness();
+      } catch (ex) { toast(terr(ex), 'error'); }
+    });
+    document.getElementById('ip-save').addEventListener('click', async () => {
+      try {
+        await api('/api/org', { method: 'PUT', body: { allowedIp: 'current' } });
+        toast(t('saved'), 'success');
+        renderBusiness();
+      } catch (ex) { toast(terr(ex), 'error'); }
+    });
+    document.getElementById('ip-clear')?.addEventListener('click', async () => {
+      try {
+        await api('/api/org', { method: 'PUT', body: { allowedIp: null } });
+        toast(t('deleted'), 'success');
+        renderBusiness();
+      } catch (ex) { toast(terr(ex), 'error'); }
+    });
     box.querySelectorAll('.member-row').forEach((row) => {
       const m = org.members.find((x) => String(x.id) === row.dataset.id);
       row.querySelector('.m-rate').addEventListener('click', () => openMemberRate(m.id, m.name, m.hourlyRate, m.taxPercent));
