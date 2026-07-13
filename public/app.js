@@ -1679,6 +1679,15 @@
           </div>`).join('')}
       </div>`;
   }
+  // Akkauntlarni almashtirish oynasi (admin panelidan ham chaqiriladi)
+  function openAccountsModal() {
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${t('accounts')}</h2><button class="modal-close" id="m-close">✕</button></div>
+      ${accountsCardHtml()}
+    `);
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    bindAccountsCard();
+  }
   function bindAccountsCard() {
     document.getElementById('acc-add')?.addEventListener('click', () => {
       state.addingAccount = true;
@@ -1697,8 +1706,10 @@
     const me = state.me;
     const tzOpts = TIMEZONES.map(([tz, label]) =>
       `<option value="${tz}" ${tz === me.timezone ? 'selected' : ''}>${label}</option>`).join('');
+    const isBiz = me.type === 'business';
     const modal = openModal(`
       <div class="modal-head"><h2 style="margin:0">${t('accInfoRow')}</h2><button class="modal-close" id="m-close">✕</button></div>
+      ${isBiz ? `<label>${t('orgName')}</label><input id="p-orgname" value="${esc(me.org?.name || '')}">` : ''}
       <label>${t('yourName')}</label><input id="p-name" value="${esc(me.name)}">
       <label>${t('email')}</label><input id="p-email" type="email" value="${esc(me.email)}">
       <label>${t('phone')}</label><input id="p-phone" type="tel" value="${esc(me.phone || '')}" placeholder="010-1234-5678">
@@ -1713,6 +1724,10 @@
       const err = modal.querySelector('#p-error');
       err.textContent = '';
       try {
+        if (isBiz) {
+          const newOrgName = modal.querySelector('#p-orgname').value.trim();
+          if (newOrgName && newOrgName !== me.org?.name) await api('/api/org', { method: 'PUT', body: { name: newOrgName } });
+        }
         await api('/api/profile', {
           method: 'PUT',
           body: {
@@ -2548,8 +2563,6 @@
 
   async function bizProfileTab(box) {
     const me = state.me;
-    const tzOpts = TIMEZONES.map(([tz, label]) =>
-      `<option value="${tz}" ${tz === me.timezone ? 'selected' : ''}>${label}</option>`).join('');
     box.innerHTML = `
       <div class="card" style="max-width:600px">
         <h2>${t('subscription')}</h2>
@@ -2557,26 +2570,24 @@
         <div id="pay-area">${me.active && !me.pendingPayment ? `<button class="btn outline" id="show-pay" style="margin-top:8px">${t('payTitle')}</button>` : payCardHtml()}</div>
       </div>
       ${accountsCardHtml()}
-      ${themePickerHtml()}
       <div class="card" style="max-width:600px">
-        <h2>${t('accountInfo')}</h2>
-        <label>${t('orgName')}</label>
-        <input id="p-orgname" value="${esc(me.org?.name || '')}">
-        <label>${t('yourName')}</label>
-        <input id="p-name" value="${esc(me.name)}">
-        <label>${t('email')}</label>
-        <input id="p-email" type="email" value="${esc(me.email)}">
-        <label>${t('changePassword')}</label>
-        <input id="p-pw" type="password" autocomplete="new-password">
-        <label>${t('timezone')}</label>
-        <select id="p-tz">${tzOpts}</select>
-        <div class="error-text" id="p-error"></div>
-        <button class="btn" id="p-save">${t('save')}</button>
+        <h2>${t('settingsT')}</h2>
+        <div class="set-row" id="set-bizinfo"><span>${t('accInfoRow')}</span><span class="muted">›</span></div>
+        <div class="set-row" style="display:block">
+          <div style="margin-bottom:10px">${t('theme')}</div>
+          <div class="theme-row">
+            ${THEMES.map((th) => `
+              <button class="theme-chip ${th === THEME ? 'active' : ''}" data-theme-pick="${th}">
+                <span class="dot dot-${th}"></span>${t('theme' + th[0].toUpperCase() + th.slice(1))}
+              </button>`).join('')}
+          </div>
+        </div>
       </div>
     `;
     bindPayCard(renderBusiness);
     bindThemePicker(renderBusiness);
     bindAccountsCard();
+    document.getElementById('set-bizinfo').addEventListener('click', () => openAccInfoModal(renderBusiness));
     document.getElementById('show-pay')?.addEventListener('click', () => {
       document.getElementById('pay-area').innerHTML = payCardHtml();
       bindPayCard(renderBusiness);
@@ -2589,28 +2600,6 @@
       state.me = null;
       if (getAccounts().length) location.reload();
       else renderAuth();
-    });
-    document.getElementById('p-save').addEventListener('click', async () => {
-      const err = document.getElementById('p-error');
-      err.textContent = '';
-      try {
-        const newOrgName = document.getElementById('p-orgname').value.trim();
-        if (newOrgName && newOrgName !== me.org?.name) {
-          await api('/api/org', { method: 'PUT', body: { name: newOrgName } });
-        }
-        await api('/api/profile', {
-          method: 'PUT',
-          body: {
-            name: document.getElementById('p-name').value,
-            email: document.getElementById('p-email').value,
-            password: document.getElementById('p-pw').value || undefined,
-            timezone: document.getElementById('p-tz').value,
-          },
-        });
-        state.me = await api('/api/me');
-        toast(t('saved'), 'success');
-        renderBusiness();
-      } catch (ex) { err.textContent = terr(ex); }
     });
   }
 
@@ -2632,10 +2621,14 @@
           <button class="btn" type="submit" style="margin-top:4px">${t('signIn')}</button>
         </form>
       </div>
-      <button class="btn ghost" id="back-btn">${t('workerLogin')}</button>
+      <button class="btn ghost" id="back-btn">${getAccounts().length ? t('back') : t('workerLogin')}</button>
     `;
     bindLangSel();
-    document.getElementById('back-btn').addEventListener('click', () => renderAuth());
+    document.getElementById('back-btn').addEventListener('click', () => {
+      state.addingAccount = false;
+      if (getAccounts().length) location.reload();
+      else renderAuth();
+    });
     document.getElementById('admin-pw').focus();
     document.getElementById('admin-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -2670,6 +2663,7 @@
         ${brandHtml(t('padminTitle'))}
         <div style="display:flex;gap:8px;align-items:center">
           ${langSelHtml()}
+          <button class="chip" id="accts-btn" title="${t('accounts')}">⇄</button>
           <button class="chip gray" id="logout-btn">${t('logout')}</button>
         </div>
       </div>
@@ -2688,6 +2682,7 @@
       <div id="tab-content"><div class="loading-screen" style="padding-top:60px"><div class="spinner"></div></div></div>
     `;
     bindLangSel();
+    document.getElementById('accts-btn').addEventListener('click', openAccountsModal);
     document.getElementById('logout-btn').addEventListener('click', async () => {
       try { await api('/api/logout', { method: 'POST' }); } catch {}
       removeActiveAccount();
