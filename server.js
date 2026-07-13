@@ -901,6 +901,19 @@ app.post('/api/org/invites', requireUser, requireBusiness, wrap(async (req, res)
   res.json({ ok: true });
 }));
 
+// Taklif qilishda username/email bo'yicha takliflar (autocomplete)
+app.get('/api/org/search-users', requireUser, requireBusiness, wrap(async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (q.length < 2) return res.json([]);
+  const org = await orgOf(req.user.id);
+  const rows = (await pool.query(
+    `SELECT id, name, email FROM users
+     WHERE type = 'worker' AND (email ILIKE $1 OR name ILIKE $1)
+       AND id NOT IN (SELECT user_id FROM memberships WHERE org_id = $2)
+     ORDER BY name LIMIT 8`, [`%${q}%`, org.id])).rows;
+  res.json(rows);
+}));
+
 app.delete('/api/org/invites/:id', requireUser, requireBusiness, wrap(async (req, res) => {
   const org = await orgOf(req.user.id);
   await pool.query(`DELETE FROM org_invites WHERE id = $1 AND org_id = $2`,

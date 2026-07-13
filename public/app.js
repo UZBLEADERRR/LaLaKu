@@ -1350,6 +1350,45 @@
     if (!['expense', 'debt', 'income'].includes(state.finKind)) state.finKind = 'expense';
     const list = items.filter((i) => i.kind === state.finKind);
 
+    // Qarzni muddati bo'yicha guruhlash: muddati o'tgan / bu oy / keyingi oylar
+    const debtBucket = (i) => {
+      const days = nextDue(i);
+      if (days !== null && days < 0) return { group: 'overdue', order: days };
+      if (i.dueDate) {
+        const d = new Date(i.dueDate + 'T00:00:00');
+        if (d.getFullYear() === year && d.getMonth() + 1 === month) return { group: 'month', order: d.getDate() };
+        return { group: 'upcoming', order: (d.getFullYear() * 12 + d.getMonth()) * 100 + d.getDate() };
+      }
+      return { group: 'month', order: i.dueDay || 999 }; // har oylik yoki sanasiz — bu oy
+    };
+    const finRowHtml = (i) => `
+      <div class="fin-row ${i.active ? '' : 'paid'}" data-id="${i.id}">
+        <div class="info">
+          <div class="name">${esc(i.title)}${i.active ? '' : ` <span class="badge-inactive">${t('paidOff')}</span>`}</div>
+          <div class="sub">${i.dueDay ? `📅 ${t('everyMonthShort', i.dueDay)}` : (i.dueDate || '')}${(i.paidAmount || 0) > 0 && i.active ? ` · ${t('remainingL')} ${fmtMoney(remOf(i))}` : ''}</div>
+        </div>
+        <b class="amt ${state.finKind === 'income' ? 'plus' : ''}">${state.finKind === 'income' ? '+' : '−'}${fmtMoney(state.finKind === 'income' ? i.amount : remOf(i))}</b>
+        <div class="actions">
+          ${state.finKind !== 'income' && i.active ? `<button class="chip gray f-pay" style="padding:6px 9px">${t('payNow')}</button>` : ''}
+          <button class="chip red f-del" style="padding:6px 9px">🗑</button>
+        </div>
+      </div>`;
+    let listHtml;
+    if (!list.length) {
+      listHtml = `<p class="muted">${t('noFinance')}</p>`;
+    } else if (state.finKind === 'debt') {
+      const groups = { overdue: [], month: [], upcoming: [] };
+      for (const i of list) groups[debtBucket(i).group].push(i);
+      for (const g of Object.keys(groups)) groups[g].sort((a, b) => debtBucket(a).order - debtBucket(b).order);
+      const section = (g, label, cls) => groups[g].length
+        ? `<div class="fin-group ${cls || ''}">${label} <span>${groups[g].length}</span></div>${groups[g].map(finRowHtml).join('')}` : '';
+      listHtml = section('overdue', `⚠️ ${t('overdueGroup')}`, 'danger')
+        + section('month', `📅 ${t('thisMonthGroup')}`)
+        + section('upcoming', `⏭ ${t('upcomingGroup')}`);
+    } else {
+      listHtml = list.map(finRowHtml).join('');
+    }
+
     $app.innerHTML = `
       <div class="topbar">
         ${brandHtml(state.me.name)}
@@ -1388,18 +1427,7 @@
           </div>
           <button class="chip" data-add="${state.finKind}" style="margin-left:8px">＋</button>
         </div>
-        ${list.length ? list.map((i) => `
-          <div class="fin-row ${i.active ? '' : 'paid'}" data-id="${i.id}">
-            <div class="info">
-              <div class="name">${esc(i.title)}${i.active ? '' : ` <span class="badge-inactive">${t('paidOff')}</span>`}</div>
-              <div class="sub">${i.dueDay ? `📅 ${i.dueDay}` : (i.dueDate || '')}${(i.paidAmount || 0) > 0 && i.active ? ` · ${t('remainingL')} ${fmtMoney(remOf(i))}` : ''}</div>
-            </div>
-            <b class="amt ${state.finKind === 'income' ? 'plus' : ''}">${state.finKind === 'income' ? '+' : '−'}${fmtMoney(state.finKind === 'income' ? i.amount : remOf(i))}</b>
-            <div class="actions">
-              ${state.finKind !== 'income' && i.active ? `<button class="chip gray f-pay" style="padding:6px 9px">${t('payNow')}</button>` : ''}
-              <button class="chip red f-del" style="padding:6px 9px">🗑</button>
-            </div>
-          </div>`).join('') : `<p class="muted">${t('noFinance')}</p>`}
+        ${listHtml}
       </div>
     `;
     bindSalaryCard(renderWorker);
@@ -2256,19 +2284,26 @@
     const inviteUrl = `${location.origin}/join/${org.inviteToken}`;
     box.innerHTML = `
       <div class="card" style="max-width:600px">
-        <h2>${t('inviteTitle')}</h2>
-        <div class="invite-box" id="invite-url">${esc(inviteUrl)}</div>
-        <div style="display:flex;gap:8px;margin-top:12px">
-          <button class="btn outline" id="invite-copy">${t('inviteCopy')}</button>
-          <button class="chip red" id="invite-rotate" style="padding:12px 16px">${t('inviteRotate')}</button>
-        </div>
+        <h2>${t('members', org.members.length)}</h2>
+        ${org.members.length ? org.members.map((m) => `
+          <div class="member-row" data-id="${m.id}">
+            <span class="avatar" style="background:${avatarColor(m.name)}">${esc(initials(m.name))}</span>
+            <div class="info">
+              <div class="name">${esc(m.name)}</div>
+              <div class="sub">${m.hourlyRate > 0 ? `${fmtMoney(m.hourlyRate)}/${t('hUnit')}${m.taxPercent ? ` · −${m.taxPercent}%` : ''}` : t('noRateYet')}</div>
+            </div>
+            <button class="icon-btn m-rate" title="${t('memberRate')}">💰</button>
+            <button class="icon-btn danger m-remove" title="${t('removeMember')}">🚪</button>
+          </div>`).join('') : `<p class="muted">${t('noMembers')}</p>`}
       </div>
-      <button class="btn outline" id="go-qr" style="max-width:600px;margin-bottom:14px">${t('tabQr')}</button>
       <div class="card" style="max-width:600px">
         <h2>${t('inviteById')}</h2>
-        <form id="inv-form">
+        <form id="inv-form" autocomplete="off">
           <div class="form-row" style="margin-top:10px">
-            <input id="inv-q" placeholder="${t('idPh')}">
+            <div class="suggest-wrap" style="flex:1">
+              <input id="inv-q" placeholder="${t('idPh')}" autocomplete="off">
+              <div class="suggest-box hidden" id="inv-suggest"></div>
+            </div>
             <button class="btn" type="submit" style="flex:0 0 auto;width:auto;padding:14px 20px">${t('sendInvite')}</button>
           </div>
           <div class="error-text" id="inv-error"></div>
@@ -2289,20 +2324,42 @@
           <button data-cm="button" class="${org.checkMode === 'button' ? 'active' : ''}">${t('modeButton')}</button>
         </div>
       </div>
+      <button class="btn outline" id="go-qr" style="max-width:600px;margin-bottom:14px">${t('tabQr')}</button>
       <div class="card" style="max-width:600px">
-        <h2>${t('members', org.members.length)}</h2>
-        ${org.members.length ? org.members.map((m) => `
-          <div class="member-row" data-id="${m.id}">
-            <span class="avatar" style="background:${avatarColor(m.name)}">${esc(initials(m.name))}</span>
-            <div class="info">
-              <div class="name">${esc(m.name)}</div>
-              <div class="sub">${m.hourlyRate > 0 ? `${fmtMoney(m.hourlyRate)}/${t('hUnit')}${m.taxPercent ? ` · −${m.taxPercent}%` : ''}` : t('noRateYet')}</div>
-            </div>
-            <button class="icon-btn m-rate" title="${t('memberRate')}">💰</button>
-            <button class="icon-btn danger m-remove" title="${t('removeMember')}">🚪</button>
-          </div>`).join('') : `<p class="muted">${t('noMembers')}</p>`}
+        <h2>${t('inviteTitle')}</h2>
+        <div class="invite-box" id="invite-url">${esc(inviteUrl)}</div>
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <button class="btn outline" id="invite-copy">${t('inviteCopy')}</button>
+          <button class="chip red" id="invite-rotate" style="padding:12px 16px">${t('inviteRotate')}</button>
+        </div>
       </div>
     `;
+    // Username/email autocomplete
+    const invQ = document.getElementById('inv-q');
+    const invSug = document.getElementById('inv-suggest');
+    let sugTimer;
+    invQ.addEventListener('input', () => {
+      clearTimeout(sugTimer);
+      const q = invQ.value.trim();
+      if (q.length < 2) { invSug.classList.add('hidden'); return; }
+      sugTimer = setTimeout(async () => {
+        try {
+          const rows = await api(`/api/org/search-users?q=${encodeURIComponent(q)}`);
+          if (!rows.length) { invSug.classList.add('hidden'); return; }
+          invSug.innerHTML = rows.map((u) => `
+            <div class="suggest-item" data-email="${esc(u.email)}">
+              <span class="avatar" style="background:${avatarColor(u.name)};width:30px;height:30px;font-size:11px">${esc(initials(u.name))}</span>
+              <div><div class="s-name">${esc(u.name)}</div><div class="s-email">${esc(u.email)}</div></div>
+            </div>`).join('');
+          invSug.classList.remove('hidden');
+          invSug.querySelectorAll('.suggest-item').forEach((it) => it.addEventListener('click', () => {
+            invQ.value = it.dataset.email;
+            invSug.classList.add('hidden');
+          }));
+        } catch { invSug.classList.add('hidden'); }
+      }, 250);
+    });
+    invQ.addEventListener('blur', () => setTimeout(() => invSug.classList.add('hidden'), 150));
     document.getElementById('go-qr').addEventListener('click', () => { state.bizTab = 'qr'; renderBusiness(); });
     document.getElementById('invite-copy').addEventListener('click', () =>
       navigator.clipboard.writeText(inviteUrl).then(() => toast(t('copied'), 'success')));
