@@ -73,6 +73,20 @@
     });
   }
 
+  // Valyuta tez tanlagichi (asosiy ekranda)
+  const curSelHtml = () => `
+    <select class="lang-sel" id="cur-quick" aria-label="Currency">
+      ${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === CUR ? 'selected' : ''}>${c} ${CURRENCIES[c]}</option>`).join('')}
+    </select>`;
+  function bindCurSel(rerender) {
+    document.getElementById('cur-quick')?.addEventListener('change', async (e) => {
+      CUR = e.target.value;
+      localStorage.setItem('lalaku_cur', CUR);
+      await loadRates();
+      rerender();
+    });
+  }
+
   // ---------- Mavzu ----------
   const THEMES = ['classic', 'kakao', 'kakaodark', 'mint', 'dark'];
   let THEME = localStorage.getItem('lalaku_theme') || 'classic';
@@ -154,13 +168,20 @@
     localStorage.setItem('lalaku_active', '0');
   }
 
-  // ---------- API (oflayn kesh bilan: GET javoblari saqlanadi) ----------
-  const CACHEABLE = ['/api/me', '/api/my/summary', '/api/jobs', '/api/finance', '/api/my/status'];
+  // ---------- API (stale-while-revalidate: keshdan darhol, fonда yangilaydi) ----------
+  const CACHEABLE = ['/api/me', '/api/my/summary', '/api/jobs', '/api/finance', '/api/my/status', '/api/my/year', '/api/my/schedule'];
   const cacheKey = (url) => `lalaku_c_${activeAccount()?.id || 0}_${url}`;
+  // Mutatsiyadan keyin joriy akkaunt keshini tozalash (keyingi GET yangisini oladi)
+  function bustCache() {
+    const id = activeAccount()?.id || 0;
+    Object.keys(localStorage).forEach((k) => { if (k.startsWith(`lalaku_c_${id}_`)) localStorage.removeItem(k); });
+  }
+
   async function api(url, opts = {}) {
     const isGet = !opts.method || opts.method === 'GET';
+    const cacheable = isGet && CACHEABLE.some((p) => url.startsWith(p));
     const acc = activeAccount();
-    try {
+    const doFetch = async () => {
       const res = await fetch(url, {
         headers: {
           'Content-Type': 'application/json',
@@ -176,19 +197,27 @@
         e.code = data.code;
         throw e;
       }
-      if (isGet && CACHEABLE.some((p) => url.startsWith(p))) {
-        try { localStorage.setItem(cacheKey(url), JSON.stringify(data)); } catch {}
-      }
+      if (cacheable) { try { localStorage.setItem(cacheKey(url), JSON.stringify(data)); } catch {} }
+      // Mutatsiya (POST/PUT/DELETE) serverni o'zgartiradi — keshni tozalaymiz
+      else if (!isGet && url.startsWith('/api/')) bustCache();
       state.offline = false;
       return data;
+    };
+
+    // Kesh bo'lsa — darhol qaytaramiz, fonда yangilaymiz (tez ishlashi uchun)
+    if (cacheable) {
+      const cached = localStorage.getItem(cacheKey(url));
+      if (cached) {
+        doFetch().catch(() => {}); // fon: server yukiga qo'shimcha bermaydi, bloklamaydi
+        try { return JSON.parse(cached); } catch {}
+      }
+    }
+    try {
+      return await doFetch();
     } catch (e) {
-      // Tarmoq xatosida keshdan o'qiymiz — ilova oflayn ham ko'rsatadi
       if (isGet && !e.code) {
         const cached = localStorage.getItem(cacheKey(url));
-        if (cached) {
-          state.offline = true;
-          return JSON.parse(cached);
-        }
+        if (cached) { state.offline = true; return JSON.parse(cached); }
       }
       throw e;
     }
@@ -730,7 +759,7 @@
       personalJobs.map((j) => cardFor('job', j)).join('');
 
     $app.innerHTML = `
-      <div class="topbar">${brandHtml(me.name)}</div>
+      <div class="topbar">${brandHtml(me.name)}${curSelHtml()}</div>
       ${state.offline ? `<div class="sub-banner warn">${t('offlineTag')}</div>` : ''}
       ${subBannerHtml()}
       ${invitesHtml}
@@ -748,6 +777,11 @@
         </div>
       </div>
 
+      ${status.checkedIn && me.active ? `
+      <button class="scan-btn leave" id="global-stop">
+        ${status.orgId && status.orgCheckMode === 'qr' ? `${ICONS.scan} ${t('checkoutBtn')}` : t('stopBtn')}
+      </button>` : ''}
+
       ${!me.active ? payCardHtml() : ''}
 
       <div class="wp-head">
@@ -758,6 +792,7 @@
       ${schedHtml}
     `;
     bindPayCard(renderWorker);
+    bindCurSel(renderWorker);
     document.getElementById('job-add').addEventListener('click', () => openJobModal(null));
 
     if (status.checkedIn && status.sinceIso) {
@@ -798,6 +833,17 @@
         const loc = status.orgId ? await getLoc() : {};
         doAction(() => api('/api/punch', { method: 'POST', body: { ...loc } }));
       }));
+
+    // Doim ko'rinadigan "Ketish" tugmasi (kelib bo'lgach)
+    document.getElementById('global-stop')?.addEventListener('click', async () => {
+      if (status.orgId && status.orgCheckMode === 'qr') {
+        const loc = await getLoc();
+        scanner.open((code) => doAction(() => api('/api/scan', { method: 'POST', body: { code, ...loc } })));
+      } else {
+        const loc = status.orgId ? await getLoc() : {};
+        doAction(() => api('/api/punch', { method: 'POST', body: { ...loc } }));
+      }
+    });
 
     document.querySelectorAll('.wp-card .wp-open').forEach((el) =>
       el.addEventListener('click', () => {
@@ -1044,9 +1090,7 @@
       </div>` : '';
 
     $app.innerHTML = `
-      <div class="topbar">${brandHtml(state.me.name)}
-        <button class="chip gray" id="copy-report">${t('copy')}</button>
-      </div>
+      <div class="topbar">${brandHtml(state.me.name)}${curSelHtml()}</div>
       ${jobChips}
       <div class="stat-row">
         <div class="stat"><div class="value">${fmtH(summary.totalMinutes)}</div><div class="label">${t('monthHours', MONTHS()[month - 1])}</div></div>
@@ -1057,8 +1101,10 @@
         ${calendarHtml(summary, year, month)}
         <div class="day-detail ${state.selectedDay ? '' : 'hidden'}" id="day-detail"></div>
       </div>
+      <button class="btn outline" id="copy-report">${t('copyReport')}</button>
     `;
     bindCalendarNav(renderWorker);
+    bindCurSel(renderWorker);
     document.querySelectorAll('[data-caljob]').forEach((c) =>
       c.addEventListener('click', () => { state.calJob = +c.dataset.caljob; renderWorker(); }));
 
@@ -1246,11 +1292,13 @@
     }
 
     const e = computeEarnings(summary, jobs);
+    // Har bir yozuvda qolgan summa = amount − to'langan
+    const remOf = (i) => Math.max(0, i.amount - (i.paidAmount || 0));
     const act = items.filter((i) => i.active);
     const incomes = act.filter((i) => i.kind === 'income').reduce((a, i) => a + i.amount, 0);
-    const expenses = act.filter((i) => i.kind === 'expense').reduce((a, i) => a + i.amount, 0);
+    const expenses = act.filter((i) => i.kind === 'expense').reduce((a, i) => a + remOf(i), 0);
     const debtsMonth = act.filter((i) => i.kind === 'debt' &&
-      (i.dueDay || (i.dueDate && i.dueDate.startsWith(`${year}-${pad(month)}`)))).reduce((a, i) => a + i.amount, 0);
+      (i.dueDay || (i.dueDate && i.dueDate.startsWith(`${year}-${pad(month)}`)))).reduce((a, i) => a + remOf(i), 0);
     const leftOver = e.net + incomes - expenses - debtsMonth;
 
     const reminders = act
@@ -1283,12 +1331,13 @@
       ${reminders.length ? `
       <div class="card">
         ${reminders.map((r) => `
-          <div class="fin-row">
+          <div class="fin-row" data-remind="${r.id}">
             <div class="info">
               <div class="name">${esc(r.title)}</div>
-              <div class="sub ${r.days <= 0 ? 'urgent' : ''}">🔔 ${t('dueInDays', r.days)}</div>
+              <div class="sub ${r.days <= 0 ? 'urgent' : ''}">🔔 ${t('dueInDays', r.days)}${(r.paidAmount || 0) > 0 ? ` · ${t('remainingL')} ${fmtMoney(remOf(r))}` : ''}</div>
             </div>
-            <b class="amt">−${fmtMoney(r.amount)}</b>
+            <b class="amt">−${fmtMoney(remOf(r))}</b>
+            <button class="chip r-pay" style="padding:8px 12px">${t('payNow')}</button>
           </div>`).join('')}
       </div>` : ''}
 
@@ -1303,32 +1352,31 @@
         ${list.length ? list.map((i) => `
           <div class="fin-row ${i.active ? '' : 'paid'}" data-id="${i.id}">
             <div class="info">
-              <div class="name">${esc(i.title)}${i.active ? '' : ` <span class="badge-inactive">${t('paidTag')}</span>`}</div>
-              <div class="sub">${i.dueDay ? `📅 ${i.dueDay}` : (i.dueDate || '')}</div>
+              <div class="name">${esc(i.title)}${i.active ? '' : ` <span class="badge-inactive">${t('paidOff')}</span>`}</div>
+              <div class="sub">${i.dueDay ? `📅 ${i.dueDay}` : (i.dueDate || '')}${(i.paidAmount || 0) > 0 && i.active ? ` · ${t('remainingL')} ${fmtMoney(remOf(i))}` : ''}</div>
             </div>
-            <b class="amt ${state.finKind === 'income' ? 'plus' : ''}">${state.finKind === 'income' ? '+' : '−'}${fmtMoney(i.amount)}</b>
+            <b class="amt ${state.finKind === 'income' ? 'plus' : ''}">${state.finKind === 'income' ? '+' : '−'}${fmtMoney(state.finKind === 'income' ? i.amount : remOf(i))}</b>
             <div class="actions">
-              ${state.finKind === 'debt' ? `<button class="chip gray f-paid" style="padding:6px 9px">${i.active ? '✓' : '↩'}</button>` : ''}
+              ${state.finKind !== 'income' && i.active ? `<button class="chip gray f-pay" style="padding:6px 9px">${t('payNow')}</button>` : ''}
               <button class="chip red f-del" style="padding:6px 9px">🗑</button>
             </div>
           </div>`).join('') : `<p class="muted">${t('noFinance')}</p>`}
       </div>
     `;
     bindSalaryCard(renderWorker);
+    bindCurSel(renderWorker);
     document.getElementById('forecast-btn').addEventListener('click', () => { state.view = 'forecast'; renderWorker(); });
     document.querySelectorAll('[data-fk]').forEach((b) =>
       b.addEventListener('click', () => { state.finKind = b.dataset.fk; renderWorker(); }));
     document.querySelectorAll('[data-add]').forEach((b) =>
       b.addEventListener('click', () => openFinanceModal(b.dataset.add)));
+    document.querySelectorAll('[data-remind]').forEach((row) =>
+      row.querySelector('.r-pay').addEventListener('click', () =>
+        openPayModal(items.find((i) => String(i.id) === row.dataset.remind), remOf)));
     document.querySelectorAll('.fin-row[data-id]').forEach((row) => {
       const id = row.dataset.id;
       const item = items.find((i) => String(i.id) === id);
-      row.querySelector('.f-paid')?.addEventListener('click', async () => {
-        try {
-          await api(`/api/finance/${id}`, { method: 'PUT', body: { active: !item.active } });
-          renderWorker();
-        } catch (ex) { toast(terr(ex), 'error'); }
-      });
+      row.querySelector('.f-pay')?.addEventListener('click', () => openPayModal(item, remOf));
       row.querySelector('.f-del')?.addEventListener('click', async () => {
         if (!confirm(t('delEntryConfirm'))) return;
         try {
@@ -1336,6 +1384,43 @@
           renderWorker();
         } catch (ex) { toast(terr(ex), 'error'); }
       });
+    });
+  }
+
+  // Qarz/chiqim to'lash oynasi: to'liq yoki bir qismini
+  function openPayModal(item, remOf) {
+    const rem = remOf(item);
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${esc(item.title)}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <p class="muted">${t('remainingL')}: <b>${fmtMoney(rem)}</b></p>
+      <label>${t('payAmountL')}</label>
+      <input id="pay-amt" type="number" min="0" step="any" inputmode="decimal" placeholder="${Math.round(rem * (RATES[CUR] || 1))}">
+      <div class="error-text" id="pay-err"></div>
+      <button class="btn" id="pay-partial" style="margin-bottom:8px">${t('payPartial')}</button>
+      <button class="btn" style="background:var(--green)" id="pay-full">${t('payFull')} (${fmtMoney(rem)})</button>
+    `);
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelector('#pay-full').addEventListener('click', async () => {
+      try {
+        await api(`/api/finance/${item.id}/pay`, { method: 'POST', body: { full: true } });
+        toast(t('saved'), 'success');
+        closeModal();
+        renderWorker();
+      } catch (ex) { modal.querySelector('#pay-err').textContent = terr(ex); }
+    });
+    modal.querySelector('#pay-partial').addEventListener('click', async () => {
+      const err = modal.querySelector('#pay-err');
+      err.textContent = '';
+      // Kiritilgan summa tanlangan valyutada — KRW ga qaytaramiz
+      const inCur = Number(modal.querySelector('#pay-amt').value);
+      if (!Number.isFinite(inCur) || inCur <= 0) { err.textContent = t('err').BAD_AMOUNT || 'Summa'; return; }
+      const krw = inCur / (RATES[CUR] || 1);
+      try {
+        await api(`/api/finance/${item.id}/pay`, { method: 'POST', body: { amount: krw } });
+        toast(t('saved'), 'success');
+        closeModal();
+        renderWorker();
+      } catch (ex) { err.textContent = terr(ex); }
     });
   }
 
@@ -1396,10 +1481,15 @@
 
   // ---------- Prognoz ----------
   async function renderForecast() {
-    let items = [];
-    try { items = await api('/api/finance'); } catch {}
-    const expenses = items.filter((i) => i.active && i.kind === 'expense').reduce((a, i) => a + i.amount, 0);
+    let items = [], jobs = [];
+    try { [items, jobs] = await Promise.all([api('/api/finance'), api('/api/jobs')]); } catch {}
+    const expenses = items.filter((i) => i.active && i.kind === 'expense').reduce((a, i) => a + (i.amount - (i.paidAmount || 0)), 0);
     const me = state.me;
+    // Stavkani real ish joyidan olamiz (bo'lmasa profil)
+    const rj = jobs.find((j) => j.payType !== 'daily' && j.rate > 0);
+    const dj = jobs.find((j) => j.payType === 'daily' && j.rate > 0);
+    const defHourly = rj ? rj.rate : (me.hourlyRate || '');
+    const defDaily = dj ? dj.rate : (me.dailyRate || '');
 
     $app.innerHTML = `
       <div class="topbar">
@@ -1420,7 +1510,7 @@
         </div>
         <div class="form-row">
           <div id="fc-rate-wrap"><label id="fc-rate-label">${me.payType === 'daily' ? t('dailyRate') : t('hourlyRate')}</label>
-            <input id="fc-rate" type="number" min="0" step="any" inputmode="decimal" value="${(me.payType === 'daily' ? me.dailyRate : me.hourlyRate) || ''}"></div>
+            <input id="fc-rate" type="number" min="0" step="any" inputmode="decimal" value="${me.payType === 'daily' ? defDaily : defHourly}"></div>
           <div><label>${t('taxPercent')}</label><input id="fc-tax" type="number" min="0" max="100" step="any" inputmode="decimal" value="${me.taxPercent || 0}"></div>
         </div>
       </div>
@@ -1457,7 +1547,7 @@
         document.querySelectorAll('[data-pt]').forEach((x) => x.classList.toggle('active', x === b));
         document.getElementById('fc-hours-wrap').classList.toggle('hidden', payType === 'daily');
         document.getElementById('fc-rate-label').textContent = payType === 'daily' ? t('dailyRate') : t('hourlyRate');
-        document.getElementById('fc-rate').value = (payType === 'daily' ? state.me.dailyRate : state.me.hourlyRate) || '';
+        document.getElementById('fc-rate').value = payType === 'daily' ? defDaily : defHourly;
         recompute();
       }));
     ['fc-days', 'fc-hours', 'fc-rate', 'fc-tax'].forEach((id) =>
@@ -1542,6 +1632,8 @@
     let jobs = [];
     try { jobs = await api('/api/jobs'); } catch {}
     const notifOn = localStorage.getItem('lalaku_notif') === '1';
+    // Asosiy soatlik ish haqi (boshliq belgilagan yoki o'zi qo'ygan)
+    const rateJob = jobs.find((j) => j.rate > 0);
 
     $app.innerHTML = `
       <div class="topbar">${brandHtml('')}${langSelHtml()}</div>
@@ -1550,6 +1642,7 @@
         <span class="avatar" style="background:${avatarColor(me.name)};width:64px;height:64px;font-size:23px;border-radius:22px">${esc(initials(me.name))}</span>
         <div class="ph-name">${esc(me.name)}</div>
         <div class="ph-email">${esc(me.email)}</div>
+        ${rateJob ? `<div style="font-weight:800;font-size:15px;margin-top:8px;color:var(--green)">${t('hourlyRate').replace(' (₩)', '')}: ${fmtMoney(rateJob.rate)}/${rateJob.payType === 'daily' ? t('dUnit') : t('hUnit')}</div>` : ''}
         <div class="ph-badges">
           <button class="chip" id="id-copy" title="${t('idNote')}">ID <b>#${me.id}</b> ⧉</button>
           <span class="chip ${me.active ? 'gray' : 'red'}">${me.active ? t(me.daysLeft > 7 ? 'paidLeft' : 'trialLeft', me.daysLeft) : t('subExpired')}</span>

@@ -162,6 +162,7 @@ async function initDb() {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS birthdate DATE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_price INTEGER;
     ALTER TABLE memberships ADD COLUMN IF NOT EXISTS tax_percent NUMERIC NOT NULL DEFAULT 0;
+    ALTER TABLE finance_items ADD COLUMN IF NOT EXISTS paid_amount NUMERIC NOT NULL DEFAULT 0;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone) WHERE phone IS NOT NULL;
     ALTER TABLE branches ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;
     ALTER TABLE branches ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;
@@ -932,7 +933,8 @@ app.post('/api/invites/:id/decline', requireUser, wrap(async (req, res) => {
 // ================= MOLIYA =================
 app.get('/api/finance', requireUser, wrap(async (req, res) => {
   const r = await pool.query(
-    `SELECT id, kind, title, amount::float, due_day AS "dueDay", due_date::text AS "dueDate", active
+    `SELECT id, kind, title, amount::float, paid_amount::float AS "paidAmount",
+            due_day AS "dueDay", due_date::text AS "dueDate", active
      FROM finance_items WHERE user_id = $1 ORDER BY active DESC, kind, id DESC`, [req.user.id]);
   res.json(r.rows);
 }));
@@ -975,6 +977,27 @@ app.put('/api/finance/:id', requireUser, wrap(async (req, res) => {
     `UPDATE finance_items SET title = $1, amount = $2, due_day = $3, due_date = $4 WHERE id = $5`,
     [v.title, v.amount, v.dueDay, v.dueDate, id]);
   res.json({ ok: true });
+}));
+
+// Qarz/chiqimni to'lash: qisman (amount) yoki to'liq (full=true)
+app.post('/api/finance/:id/pay', requireUser, wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const item = (await pool.query(
+    `SELECT amount::float, paid_amount::float AS paid FROM finance_items WHERE id = $1 AND user_id = $2`,
+    [id, req.user.id])).rows[0];
+  if (!item) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  const full = (req.body || {}).full === true;
+  if (full) {
+    await pool.query(`UPDATE finance_items SET paid_amount = amount, active = false WHERE id = $1`, [id]);
+    return res.json({ ok: true, remaining: 0 });
+  }
+  const pay = Number((req.body || {}).amount);
+  if (!Number.isFinite(pay) || pay <= 0) return fail(res, 400, "Summa noto'g'ri", 'BAD_AMOUNT');
+  const newPaid = Math.min(item.amount, item.paid + pay);
+  const done = newPaid >= item.amount;
+  await pool.query(`UPDATE finance_items SET paid_amount = $1, active = $2 WHERE id = $3`,
+    [newPaid, !done, id]);
+  res.json({ ok: true, remaining: Math.max(0, item.amount - newPaid) });
 }));
 
 app.delete('/api/finance/:id', requireUser, wrap(async (req, res) => {
@@ -1029,10 +1052,15 @@ app.put('/api/org/members/:userId', requireUser, requireBusiness, wrap(async (re
   if (!Number.isFinite(rate) || rate < 0 || rate > 1e9) return fail(res, 400, "Stavka noto'g'ri", 'BAD_RATE');
   if (!Number.isFinite(tax) || tax < 0 || tax > 100) return fail(res, 400, 'Soliq 0-100 orasida', 'BAD_TAX');
   const org = await orgOf(req.user.id);
+  const uid = parseInt(req.params.userId, 10);
   const r = await pool.query(
     `UPDATE memberships SET hourly_rate = $1, tax_percent = $2 WHERE org_id = $3 AND user_id = $4 RETURNING user_id`,
-    [rate, tax, org.id, parseInt(req.params.userId, 10)]);
+    [rate, tax, org.id, uid]);
   if (!r.rows[0]) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  // Boshliq belgilagan stavka ishchining shu jamoaga bog'langan ish joyiga ham yoziladi
+  await pool.query(
+    `UPDATE jobs SET rate = $1, tax_percent = $2, pay_type = 'hourly' WHERE user_id = $3 AND org_id = $4`,
+    [rate, tax, uid, org.id]);
   res.json({ ok: true });
 }));
 
