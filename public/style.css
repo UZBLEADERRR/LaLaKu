@@ -429,6 +429,13 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 .wd-h { flex: 0 0 auto; font-weight: 800; font-size: 15px; color: var(--green); font-variant-numeric: tabular-nums; }
 .wd-row.open .wd-h { color: var(--amber); }
 .wd-live { color: var(--amber); font-size: 9px; vertical-align: middle; }
+.export-row { display: flex; gap: 10px; margin-bottom: 12px; }
+.export-row .btn { flex: 1; margin: 0; }
+.mini-month { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 10px 0 4px; }
+.mm-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 9px; font-size: 12px; font-weight: 700; cursor: pointer; background: var(--card-2, #eef0f6); color: var(--muted); }
+.mm-day.worked { background: var(--green-soft); color: var(--green); font-weight: 800; }
+.mm-day.open { background: var(--amber-soft); color: var(--amber); font-weight: 800; }
+[data-theme="dark"] .mm-day.rest, [data-theme="kakaodark"] .mm-day.rest { background: rgba(255,255,255,.05); }
 .wc-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding-top: 12px; border-top: 1.5px solid var(--line); font-size: 14px; }
 .wc-foot .salary { color: var(--green); font-size: 16px; font-weight: 800; }
 .wc-add { margin-top: 12px; }

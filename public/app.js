@@ -262,6 +262,24 @@
     return LANG === 'ko' ? `${+m}월 ${+d}일` : LANG === 'en' ? `${MONTHS()[+m - 1]} ${+d}` : `${+d}-${MONTHS()[+m - 1].toLowerCase()}`;
   };
   const calTitle = (year, month) => LANG === 'ko' ? `${year}년 ${MONTHS()[month - 1]}` : `${MONTHS()[month - 1]} ${year}`;
+  // Smena davomiyligi (daqiqa) — tungi smena (tugash < boshlanish) keyingi kunga o'tadi
+  function shiftMinutes(start, end) {
+    const [sh, sm] = String(start).split(':').map(Number);
+    const [eh, em] = String(end).split(':').map(Number);
+    let m = (eh * 60 + em) - (sh * 60 + sm);
+    if (m < 0) m += 24 * 60;
+    return m;
+  }
+  // CSV yuklab olish (Excel ochadi) — UTF-8 BOM bilan
+  function downloadCsv(filename, rows) {
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = '﻿' + rows.map((r) => r.map(esc).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
 
   function toast(msg, type = '', ms = 3400) {
     const el = document.getElementById('toast');
@@ -1895,9 +1913,29 @@
   }
 
   async function bizBoardTab(box) {
-    const data = await api('/api/org/board');
+    const { year, month } = currentMonth();
+    const [data, summary, sched] = await Promise.all([
+      api('/api/org/board'),
+      api(`/api/org/summary?year=${year}&month=${month}`),
+      api(`/api/org/schedule?year=${year}&month=${month}`),
+    ]);
     const atWork = data.workers.filter((w) => w.status === 'in').length;
+    const todayWage = data.workers.reduce((a, w) => a + (w.earned || 0), 0);
+    const monthWage = summary.workers.reduce((a, w) => a + (w.earned || 0), 0);
+    // Reja bo'yicha taxminiy xarajat (rejalashtirilgan smenalar × stavka)
+    const rById = {};
+    summary.workers.forEach((w) => { rById[w.id] = { rate: w.rate || 0, tax: w.tax || 0 }; });
+    let plannedCost = 0;
+    for (const s of sched.schedules) {
+      const r = rById[s.userId] || { rate: 0, tax: 0 };
+      plannedCost += (shiftMinutes(s.start, s.end) / 60) * r.rate * (1 - (r.tax || 0) / 100);
+    }
     box.innerHTML = `
+      <div class="stat-row" style="max-width:600px">
+        <div class="stat"><div class="value" style="color:var(--green)">${fmtMoneyShort(monthWage)}</div><div class="label">${t('wagesMonth')}</div></div>
+        <div class="stat"><div class="value">${fmtMoneyShort(todayWage)}</div><div class="label">${t('wagesToday')}</div></div>
+        <div class="stat"><div class="value" style="color:var(--accent)">${fmtMoneyShort(plannedCost)}</div><div class="label">${t('wagesPlanned')}</div></div>
+      </div>
       <div class="board-date">${dayTitle(data.date)} · ${data.time} · <b style="color:var(--green)">${t('atWorkCount', atWork)}</b></div>
       ${data.workers.length ? data.workers.map((w) => `
         <div class="board-row ${w.status === 'in' ? 'working' : ''}" style="max-width:600px">
@@ -1932,11 +1970,24 @@
 
     const grandTotal = data.workers.reduce((a, w) => a + w.totalMinutes, 0);
 
-    // WORKED rejimi — har bir ishchi uchun to'liq tabel (ism, kunlar, kelish-ketish, jami, maosh)
+    // WORKED rejimi — har bir ishchi uchun to'liq oylik tabel (ish/dam kunlari, kelish-ketish, jami, maosh)
     const workedHtml = data.workers.length ? `
       <div class="card grand-bar"><span>${t('rosterTitle')}</span>
         <span><b style="color:var(--accent)">${fmtH(grandTotal)}</b> ${t('hUnit')}</span></div>
+      <div class="export-row">
+        <button class="btn outline" id="ts-csv">⬇ Excel</button>
+        <button class="btn outline" id="ts-pdf">🖨 PDF</button>
+      </div>
       ${data.workers.map((w) => {
+        const workedCount = Object.keys(w.days || {}).length;
+        // To'liq oy: har bir kun (ish yoki dam) mini-katakda ko'rinadi
+        let miniCells = '';
+        for (let d = 1; d <= daysInMonth; d++) {
+          const date = `${year}-${pad(month)}-${pad(d)}`;
+          const dd = w.days[date];
+          const cls = dd ? (dd.open ? 'open' : 'worked') : 'rest';
+          miniCells += `<span class="mm-day ${cls}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${d}</span>`;
+        }
         const dayKeys = Object.keys(w.days || {}).sort();
         const dayRows = dayKeys.map((date) => {
           const dd = w.days[date];
@@ -1953,10 +2004,11 @@
           <div class="wc-head">
             <span class="avatar" style="background:${avatarColor(w.name)};width:40px;height:40px;font-size:14px">${esc(initials(w.name))}</span>
             <div class="info"><div class="name">${esc(w.name)}</div>
-              <div class="sub">${dayKeys.length} ${t('dUnit')} · ${w.rate > 0 ? `${fmtMoney(w.rate)}/${t('hUnit')}` : t('noRateYet')}</div></div>
+              <div class="sub">${t('workedRestDays', workedCount, daysInMonth - workedCount)} · ${w.rate > 0 ? `${fmtMoney(w.rate)}/${t('hUnit')}` : t('noRateYet')}</div></div>
             <button class="icon-btn wc-rate" title="${t('memberRate')}">💰</button>
             <button class="icon-btn wc-copy" title="${t('copyReport')}">📋</button>
           </div>
+          <div class="mini-month">${miniCells}</div>
           ${dayRows ? `<div class="wc-days">${dayRows}</div>` : `<p class="muted" style="margin:10px 2px 2px;font-size:13px">${t('noRecords')}</p>`}
           <div class="wc-foot">
             <span>${t('totalCol')}: <b>${fmtH(w.totalMinutes)}</b></span>
@@ -2009,6 +2061,8 @@
     box.querySelectorAll('td.name-col').forEach((td) => td.addEventListener('click', () =>
       openScheduleModal(+td.dataset.worker, td.dataset.name, todayStr(), schedMap[`${td.dataset.worker}_${todayStr()}`])));
     // Worked rejimi tabel kartalari
+    document.getElementById('ts-csv')?.addEventListener('click', () => exportTimesheetCsv(data, year, month));
+    document.getElementById('ts-pdf')?.addEventListener('click', () => printTimesheet(data, year, month));
     box.querySelectorAll('.worker-cal').forEach((card) => {
       const wid = +card.dataset.worker, wname = card.dataset.name;
       const w = data.workers.find((x) => x.id === wid);
@@ -2016,9 +2070,51 @@
         openMemberRate(wid, wname, +card.dataset.rate, +card.dataset.tax));
       card.querySelector('.wc-copy')?.addEventListener('click', () => copyTimesheet(w, year, month));
       card.querySelector('.wc-add')?.addEventListener('click', () => openAddDay(wid, wname));
-      card.querySelectorAll('.wd-row').forEach((r) => r.addEventListener('click', () =>
-        openOrgDayModal(+r.dataset.worker, r.dataset.name, r.dataset.date)));
+      const openDay = (el) => openOrgDayModal(+el.dataset.worker, el.dataset.name, el.dataset.date);
+      card.querySelectorAll('.wd-row').forEach((r) => r.addEventListener('click', () => openDay(r)));
+      card.querySelectorAll('.mm-day').forEach((c) => c.addEventListener('click', () => openDay(c)));
     });
+  }
+
+  // To'liq oylik tabel — barcha ishchilar, har kun (soat/dam), jami va maosh
+  function timesheetMatrix(data, year, month) {
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const head = [t('dateLabel'), '', ...data.workers.map((w) => w.name)];
+    const rows = [head];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = `${year}-${pad(month)}-${pad(d)}`;
+      const dow = new Date(year, month - 1, d).getDay();
+      const cells = data.workers.map((w) => {
+        const dd = w.days[date];
+        if (!dd) return '—';
+        const times = dd.sessions.map((s) => `${s.in}-${s.out || '…'}`).join(' ');
+        return `${times} (${fmtH(dd.minutes)})`;
+      });
+      rows.push([String(d), DOWS()[(dow + 6) % 7], ...cells]);
+    }
+    rows.push([t('totalCol'), '', ...data.workers.map((w) => fmtH(w.totalMinutes))]);
+    rows.push([t('salary'), '', ...data.workers.map((w) => (w.earned != null ? fmtMoney(w.earned) : '—'))]);
+    return rows;
+  }
+
+  function exportTimesheetCsv(data, year, month) {
+    downloadCsv(`tabel-${year}-${pad(month)}.csv`, timesheetMatrix(data, year, month));
+    toast(t('downloaded'), 'success');
+  }
+
+  function printTimesheet(data, year, month) {
+    const rows = timesheetMatrix(data, year, month);
+    const html = `<table><thead><tr>${rows[0].map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.slice(1).map((r, i) => `<tr class="${i >= rows.length - 3 ? 'sum' : ''}">${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    const win = window.open('', '_blank');
+    if (!win) return toast(t('genericError'), 'error');
+    win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(APP_NAME)} — ${calTitle(year, month)}</title>
+      <style>body{font-family:system-ui,sans-serif;padding:16px;color:#111}h2{margin:0 0 12px}
+      table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:4px 6px;text-align:center}
+      th{background:#f0f0f0}tr.sum{font-weight:800;background:#f6f6f6}</style></head>
+      <body><h2>${esc(APP_NAME)} — ${calTitle(year, month)}</h2>${html}
+      <script>window.onload=function(){window.print()}<\/script></body></html>`);
+    win.document.close();
   }
 
   // Tabelni matn sifatida nusxalash (SMS/hisobot uchun)
