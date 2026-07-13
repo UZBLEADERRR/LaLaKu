@@ -2817,6 +2817,7 @@
                 <div class="sub">${t('padUntil')}: ${new Date(u.paidUntil).toLocaleDateString()}</div>
               </div>
               <div class="actions">
+                <button class="chip gray" data-detail="1">👁</button>
                 <button class="chip" data-days="30">${t('padAddDays', 30)}</button>
                 <button class="chip" data-days="365">${t('padAddDays', 365)}</button>
                 <button class="chip gray" data-price="1">💲</button>
@@ -2863,6 +2864,27 @@
           toast(t('saved'), 'success');
         } catch (ex) { toast(terr(ex), 'error'); }
       }));
+    box.querySelectorAll('[data-detail]').forEach((b) =>
+      b.addEventListener('click', () => openUserDetail(b.closest('[data-id]').dataset.id)));
+  }
+
+  // Yaratuvchi uchun: foydalanuvchining to'liq ma'lumoti
+  async function openUserDetail(id) {
+    let d;
+    try { d = await api(`/api/admin/users/${id}/detail`); } catch (ex) { return toast(terr(ex), 'error'); }
+    const row = (label, val) => `<div class="fin-row" style="padding:9px 0"><div class="info"><div class="sub" style="font-size:12px">${label}</div><div class="name" style="font-size:14.5px">${val}</div></div></div>`;
+    openModal(`
+      <div class="modal-head"><h2 style="margin:0">${esc(d.name)} ${d.type === 'business' ? '🍽' : '👷'}</h2><button class="modal-close" id="m-close">✕</button></div>
+      ${row(t('email'), esc(d.email || '') || '—')}
+      ${row(t('phone'), esc(d.phone || '') || '—')}
+      ${row(t('birthdate'), esc(d.birthdate || '') || '—')}
+      ${row(t('timezone'), esc(d.timezone || '') || '—')}
+      ${row(t('padUntil'), new Date(d.paidUntil).toLocaleDateString() + (d.customPrice != null ? ` · 💲${d.customPrice}` : ''))}
+      ${d.type === 'business' && d.org
+        ? row(t('orgName'), `${esc(d.org.name)} · ${d.org.members} ${t('padUsers').replace('👥 ', '')} · ${d.org.branches} 🏢`)
+        : row(t('myTeams'), d.teams.length ? d.teams.map(esc).join(', ') : '—')}
+      ${row(t('monthHours', MONTHS()[new Date().getMonth()]), `<b style="color:var(--green)">${fmtH(d.monthMinutes)}</b> · ${d.entriesTotal} 📋 · ${d.financeActive} 💳`)}
+    `).querySelector('#m-close').addEventListener('click', closeModal);
   }
 
   // ================================================================
