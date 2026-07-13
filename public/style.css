@@ -258,9 +258,9 @@ label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); 
 .scan-btn svg { width: 26px; height: 26px; }
 
 .stat-row { display: flex; gap: 12px; margin-bottom: 14px; }
-.stat { flex: 1; background: var(--card); border-radius: 18px; box-shadow: var(--shadow-sm); padding: 16px; }
-.stat .value { font-size: 24px; font-weight: 800; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
-.stat .label { font-size: 12.5px; color: var(--muted); font-weight: 700; margin-top: 3px; }
+.stat { flex: 1 1 0; min-width: 0; background: var(--card); border-radius: 18px; box-shadow: var(--shadow-sm); padding: 16px; overflow: hidden; }
+.stat .value { font-size: clamp(16px, 5vw, 24px); font-weight: 800; letter-spacing: -.5px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat .label { font-size: 12.5px; color: var(--muted); font-weight: 700; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .session-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
 .session-row:last-child { border-bottom: none; }
@@ -404,6 +404,29 @@ table.summary td.total-col, table.summary th.total-col {
 table.summary th.wknd { background: #fdeef3; color: #be185d; }
 table.summary tbody tr:hover td { background-color: #f8f9fe; }
 table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
+
+/* Biznes kalendari — vertikal ishchi kartalari (gorizontal scroll o'rniga) */
+.grand-bar { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; font-weight: 700; }
+.grand-bar span:first-child { font-size: 14px; }
+.grand-bar span:last-child { font-size: 13.5px; color: var(--muted); }
+.worker-cal { padding: 14px 16px; }
+.wc-head { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+.wc-head .info { flex: 1; min-width: 0; }
+.wc-head .name { font-weight: 800; font-size: 15.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wc-head .sub { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-top: 1px; }
+.wc-tot { text-align: right; }
+.wc-tot .v { font-size: 20px; font-weight: 800; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.wc-tot .e { font-size: 12px; font-weight: 800; color: var(--green); }
+.wc-days { margin-top: 10px; border-top: 1.5px solid var(--line); }
+.wd-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.wd-row:last-child { border-bottom: none; }
+.wd-row:active { background: var(--green-soft); }
+.wd-date { font-weight: 700; font-size: 14px; color: var(--text); display: flex; align-items: baseline; gap: 6px; }
+.wd-date small { font-size: 11.5px; color: var(--muted); font-weight: 700; }
+.wd-date.wknd { color: #be185d; }
+.wd-h { font-weight: 800; font-size: 15px; color: var(--green); font-variant-numeric: tabular-nums; }
+.wd-row.open .wd-h { color: var(--amber); }
+.wd-live { color: var(--amber); font-size: 9px; vertical-align: middle; }
 
 .worker-admin-row { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1.5px solid var(--line); }
 .worker-admin-row:last-child { border-bottom: none; }

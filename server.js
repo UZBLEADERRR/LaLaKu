@@ -650,20 +650,10 @@ app.post('/api/scan', requireUser, requireActive, wrap(async (req, res) => {
 app.post('/api/punch', requireUser, requireActive, wrap(async (req, res) => {
   const { orgId, jobId, lat, lng } = req.body || {};
 
-  // Yopish: ochiq yozuv bo'lsa uning qoidalari qo'llanadi
+  // Yopish (ketish) doim ruxsat etiladi — ish joyidan uzoqda ham chiqib ketish mumkin.
+  // Aks holda ishchi joyni tark etsa, yozuv ochiq qolib "ishda" bo'lib turaverardi.
   const open = await openEntry(req.user.id);
   if (open) {
-    if (open.org_id) {
-      const org = (await pool.query(`SELECT check_mode FROM orgs WHERE id = $1`, [open.org_id])).rows[0];
-      if (org?.check_mode === 'qr') return fail(res, 400, 'Ketish uchun QR skanerlang', 'USE_QR');
-      const branches = (await pool.query(
-        `SELECT lat, lng, radius FROM branches WHERE org_id = $1`, [open.org_id])).rows;
-      const geo = geofenceCheck(branches, lat, lng);
-      if (!geo.ok) {
-        return fail(res, 403, geo.code === 'TOO_FAR'
-          ? `Siz ish joyidan ${geo.distance} m uzoqdasiz` : 'Joylashuvga ruxsat kerak', geo.code);
-      }
-    }
     return togglePunch(req.user, null, null, null, res);
   }
 
@@ -1095,8 +1085,10 @@ app.post('/api/org/invite/rotate', requireUser, requireBusiness, wrap(async (req
 
 app.delete('/api/org/members/:userId', requireUser, requireBusiness, wrap(async (req, res) => {
   const org = await orgOf(req.user.id);
-  await pool.query(`DELETE FROM memberships WHERE org_id = $1 AND user_id = $2`,
-    [org.id, parseInt(req.params.userId, 10)]);
+  const uid = parseInt(req.params.userId, 10);
+  await pool.query(`DELETE FROM memberships WHERE org_id = $1 AND user_id = $2`, [org.id, uid]);
+  // Ishchining shu jamoaga bog'langan ish joyi yozuvini ham olib tashlaymiz (tarix entries'da qoladi)
+  await pool.query(`DELETE FROM jobs WHERE org_id = $1 AND user_id = $2`, [org.id, uid]);
   res.json({ ok: true });
 }));
 
@@ -1173,7 +1165,7 @@ app.get('/api/org/board', requireUser, requireBusiness, wrap(async (req, res) =>
   const rows = (await pool.query(
     `SELECT u.id, u.name, m.hourly_rate::float AS rate, m.tax_percent::float AS tax,
             COALESCE(SUM(ROUND(EXTRACT(EPOCH FROM (COALESCE(e.check_out, now()) - e.check_in)) / 60)), 0)::int AS minutes,
-            BOOL_OR(e.check_out IS NULL) AS open,
+            BOOL_OR(e.id IS NOT NULL AND e.check_out IS NULL) AS open,
             MIN(e.check_in) AS first_in
      FROM memberships m
      JOIN users u ON u.id = m.user_id
@@ -1341,8 +1333,10 @@ app.post('/api/join', requireUser, wrap(async (req, res) => {
 }));
 
 app.delete('/api/my/memberships/:orgId', requireUser, wrap(async (req, res) => {
-  await pool.query(`DELETE FROM memberships WHERE user_id = $1 AND org_id = $2`,
-    [req.user.id, parseInt(req.params.orgId, 10)]);
+  const orgId = parseInt(req.params.orgId, 10);
+  await pool.query(`DELETE FROM memberships WHERE user_id = $1 AND org_id = $2`, [req.user.id, orgId]);
+  // Jamoadan chiqilganda shu jamoaga bog'langan ish joyi ham o'chadi (kalendar/profildan yo'qoladi)
+  await pool.query(`DELETE FROM jobs WHERE user_id = $1 AND org_id = $2`, [req.user.id, orgId]);
   res.json({ ok: true });
 }));
 

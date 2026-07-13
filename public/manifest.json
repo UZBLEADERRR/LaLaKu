@@ -1,6 +1,6 @@
 {
-  "name": "LaLaKu Vaqt — Ish vaqtini hisoblash",
-  "short_name": "LaLaKu Vaqt",
+  "name": "AlbaFit — Ish vaqti va moliya",
+  "short_name": "AlbaFit",
   "description": "QR kod orqali ishga kelish va ketish vaqtini hisoblash",
   "start_url": "/",
   "display": "standalone",
