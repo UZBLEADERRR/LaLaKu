@@ -171,8 +171,11 @@
   // ---------- API (stale-while-revalidate: keshdan darhol, fonда yangilaydi) ----------
   const CACHEABLE = ['/api/me', '/api/my/summary', '/api/jobs', '/api/finance', '/api/my/status', '/api/my/year', '/api/my/schedule'];
   const cacheKey = (url) => `lalaku_c_${activeAccount()?.id || 0}_${url}`;
-  // Mutatsiyadan keyin joriy akkaunt keshini tozalash (keyingi GET yangisini oladi)
+  // Kesh "avlodi": mutatsiya bo'lganda oshadi. Fondagi eski so'rov
+  // tugagach, avlod o'zgargan bo'lsa keshga YOZMAYDI (eski ma'lumot qaytmaydi).
+  let cacheEpoch = 0;
   function bustCache() {
+    cacheEpoch++;
     const id = activeAccount()?.id || 0;
     Object.keys(localStorage).forEach((k) => { if (k.startsWith(`lalaku_c_${id}_`)) localStorage.removeItem(k); });
   }
@@ -181,6 +184,7 @@
     const isGet = !opts.method || opts.method === 'GET';
     const cacheable = isGet && CACHEABLE.some((p) => url.startsWith(p));
     const acc = activeAccount();
+    const startEpoch = cacheEpoch;
     const doFetch = async () => {
       const res = await fetch(url, {
         headers: {
@@ -197,7 +201,10 @@
         e.code = data.code;
         throw e;
       }
-      if (cacheable) { try { localStorage.setItem(cacheKey(url), JSON.stringify(data)); } catch {} }
+      // Faqat oraliqda mutatsiya bo'lmagan bo'lsa keshga yozamiz
+      if (cacheable && startEpoch === cacheEpoch) {
+        try { localStorage.setItem(cacheKey(url), JSON.stringify(data)); } catch {}
+      }
       // Mutatsiya (POST/PUT/DELETE) serverni o'zgartiradi — keshni tozalaymiz
       else if (!isGet && url.startsWith('/api/')) bustCache();
       state.offline = false;
