@@ -603,8 +603,8 @@
         <h2>${t('payTitle')}</h2>
         <p class="muted">${t('payDesc', new Intl.NumberFormat(LOCALES[LANG]).format(me.price))}</p>
         <div class="bank-box">
-          <div><b>${t('payBank')}</b></div>
-          <div class="acc" id="bank-acc">${t('payAccount')}</div>
+          <div><b>${esc(state.me?.bankName || t('payBank'))}</b></div>
+          <div class="acc" id="bank-acc">${esc(state.me?.bankAccount || t('payAccount'))}</div>
           <button class="chip" id="acc-copy">${t('copy')}</button>
         </div>
         <label class="btn outline" style="text-align:center;cursor:pointer;margin-top:12px">
@@ -2537,8 +2537,19 @@
         <input id="pr-w" type="number" min="0" value="${prices.worker}">
         <label>${t('priceBusiness')}</label>
         <input id="pr-b" type="number" min="0" value="${prices.business}">
+        <label>${t('trialDaysLabel')}</label>
+        <input id="pr-trial" type="number" min="0" max="3660" value="${prices.trialDays}">
         <div class="error-text" id="pr-error"></div>
         <button class="btn" id="pr-save">${t('save')}</button>
+      </div>
+      <div class="card" style="max-width:480px">
+        <h2>${t('bankSettings')}</h2>
+        <label>${t('bankNameLabel')}</label>
+        <input id="pr-bn" value="${esc(prices.bankName || '')}">
+        <label>${t('bankAccountLabel')}</label>
+        <input id="pr-ba" value="${esc(prices.bankAccount || '')}">
+        <div class="error-text" id="pr-berror"></div>
+        <button class="btn" id="pr-bsave">${t('save')}</button>
       </div>`;
     document.getElementById('pr-save').addEventListener('click', async () => {
       const err = document.getElementById('pr-error');
@@ -2546,7 +2557,28 @@
       try {
         await api('/api/admin/prices', {
           method: 'PUT',
-          body: { worker: document.getElementById('pr-w').value, business: document.getElementById('pr-b').value },
+          body: {
+            worker: document.getElementById('pr-w').value,
+            business: document.getElementById('pr-b').value,
+            trialDays: document.getElementById('pr-trial').value,
+            bankName: prices.bankName, bankAccount: prices.bankAccount,
+          },
+        });
+        toast(t('saved'), 'success');
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+    document.getElementById('pr-bsave').addEventListener('click', async () => {
+      const err = document.getElementById('pr-berror');
+      err.textContent = '';
+      try {
+        await api('/api/admin/prices', {
+          method: 'PUT',
+          body: {
+            worker: document.getElementById('pr-w').value,
+            business: document.getElementById('pr-b').value,
+            bankName: document.getElementById('pr-bn').value,
+            bankAccount: document.getElementById('pr-ba').value,
+          },
         });
         toast(t('saved'), 'success');
       } catch (ex) { err.textContent = terr(ex); }
@@ -2593,12 +2625,14 @@
               <span class="avatar" style="background:${avatarColor(u.name)}">${esc(initials(u.name))}</span>
               <div class="info">
                 <div class="name">${esc(u.name)} ${u.type === 'business' ? '🍽' : ''} ${u.active ? '' : `<span class="badge-inactive">${t('subExpired')}</span>`}</div>
-                <div class="sub">${esc(u.email)} · ${t('padUntil')}: ${new Date(u.paidUntil).toLocaleDateString()}</div>
+                <div class="sub">${esc(u.email)}${u.phone ? ` · ${esc(u.phone)}` : ''}</div>
+                <div class="sub">${t('padUntil')}: ${new Date(u.paidUntil).toLocaleDateString()}</div>
               </div>
               <div class="actions">
                 <button class="chip" data-days="30">${t('padAddDays', 30)}</button>
                 <button class="chip" data-days="365">${t('padAddDays', 365)}</button>
                 <button class="chip gray" data-price="1">💲</button>
+                <button class="chip gray" data-pw="1">🔑</button>
                 <button class="chip red" data-days="-3660">✕</button>
               </div>
             </div>
@@ -2628,6 +2662,16 @@
         if (v === null) return;
         try {
           await api(`/api/admin/users/${u.id}/price`, { method: 'PUT', body: { customPrice: v === '' ? null : +v } });
+          toast(t('saved'), 'success');
+        } catch (ex) { toast(terr(ex), 'error'); }
+      }));
+    box.querySelectorAll('[data-pw]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const u = users.find((x) => String(x.id) === b.closest('[data-id]').dataset.id);
+        const v = prompt(t('resetPwPrompt', u.name), '');
+        if (!v) return;
+        try {
+          await api(`/api/admin/users/${u.id}/password`, { method: 'PUT', body: { password: v } });
           toast(t('saved'), 'success');
         } catch (ex) { toast(terr(ex), 'error'); }
       }));

@@ -17,9 +17,10 @@ const PORT = process.env.PORT || 3000;
 const DEFAULT_TZ = process.env.TIMEZONE || 'Asia/Seoul';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const DATABASE_URL = process.env.DATABASE_URL;
-const TRIAL_DAYS = 15;
 const PRICES = { worker: 990, business: 2900 }; // standart, admin o'zgartira oladi
 let PRICE_OVERRIDES = {};
+// Admin o'zgartira oladigan global sozlamalar (boot'da settings'dan yuklanadi)
+const CONFIG = { trialDays: 15, bankName: '토스뱅크 (Toss Bank)', bankAccount: '1000-8922-1696' };
 async function priceFor(u) {
   if (u.custom_price != null) return u.custom_price;
   return PRICE_OVERRIDES[u.type] ?? PRICES[u.type];
@@ -436,8 +437,8 @@ app.post('/api/register', wrap(async (req, res) => {
   const hash = await bcrypt.hash(password || birthdate, 10);
   const u = (await pool.query(
     `INSERT INTO users (email, password_hash, name, type, phone, birthdate, paid_until)
-     VALUES ($1, $2, $3, $4, $5, $6, now() + interval '${TRIAL_DAYS} days') RETURNING *`,
-    [email, hash, name, type, phone || null, birthdate]
+     VALUES ($1, $2, $3, $4, $5, $6, now() + ($7 || ' days')::interval) RETURNING *`,
+    [email, hash, name, type, phone || null, birthdate, CONFIG.trialDays]
   )).rows[0];
 
   if (type === 'business') {
@@ -503,6 +504,7 @@ async function meJson(u) {
     price: await priceFor(u),
     token: signToken({ t: 'user', id: u.id, exp: Date.now() + 60 * 86400_000 }),
     pendingPayment: !!pending,
+    bankName: CONFIG.bankName, bankAccount: CONFIG.bankAccount,
     org: org ? { id: org.id, name: org.name } : null,
     memberships,
     invites,
@@ -765,6 +767,7 @@ async function userMonth(userId, tz, year, month, orgOnly = null) {
      FROM entries e
      WHERE e.user_id = $1 AND e.work_date >= $2 AND e.work_date < $3
        AND ($4::int IS NULL OR e.org_id = $4)
+       AND NOT (e.org_id IS NOT NULL AND e.job_id IS NULL)
      ORDER BY e.check_in`,
     [userId, start, next, orgOnly]
   );
@@ -791,6 +794,7 @@ app.get('/api/my/year', requireUser, wrap(async (req, res) => {
             COUNT(DISTINCT work_date)::int AS days
      FROM entries
      WHERE user_id = $1 AND work_date >= ($2 || '-01-01')::date AND work_date < (($2::int + 1) || '-01-01')::date
+       AND NOT (org_id IS NOT NULL AND job_id IS NULL)
      GROUP BY 1, 2 ORDER BY 1`,
     [req.user.id, String(year)]);
   res.json({ year, rows: r.rows });
@@ -1381,9 +1385,9 @@ app.get('/api/admin/overview', requirePlatformAdmin, wrap(async (req, res) => {
 app.get('/api/admin/users', requirePlatformAdmin, wrap(async (req, res) => {
   const q = `%${String(req.query.q || '').trim()}%`;
   const r = await pool.query(
-    `SELECT id, email, name, type, paid_until AS "paidUntil", created_at AS "createdAt",
+    `SELECT id, email, name, phone, type, paid_until AS "paidUntil", created_at AS "createdAt",
             (paid_until > now()) AS active
-     FROM users WHERE email ILIKE $1 OR name ILIKE $1
+     FROM users WHERE email ILIKE $1 OR name ILIKE $1 OR phone ILIKE $1
      ORDER BY created_at DESC LIMIT 100`, [q]);
   res.json(r.rows);
 }));
@@ -1403,20 +1407,52 @@ app.get('/api/admin/prices', requirePlatformAdmin, wrap(async (req, res) => {
   res.json({
     worker: PRICE_OVERRIDES.worker ?? PRICES.worker,
     business: PRICE_OVERRIDES.business ?? PRICES.business,
+    trialDays: CONFIG.trialDays,
+    bankName: CONFIG.bankName,
+    bankAccount: CONFIG.bankAccount,
   });
 }));
 
+const setSetting = (key, value) => pool.query(
+  `INSERT INTO settings (key, value) VALUES ($1, $2)
+   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, String(value)]);
+
 app.put('/api/admin/prices', requirePlatformAdmin, wrap(async (req, res) => {
-  const w = parseInt((req.body || {}).worker, 10);
-  const b = parseInt((req.body || {}).business, 10);
+  const body = req.body || {};
+  const w = parseInt(body.worker, 10);
+  const b = parseInt(body.business, 10);
   if (!Number.isFinite(w) || w < 0 || w > 1e7 || !Number.isFinite(b) || b < 0 || b > 1e7) {
     return fail(res, 400, "Narx noto'g'ri", 'BAD_AMOUNT');
   }
-  await pool.query(`INSERT INTO settings (key, value) VALUES ('price_worker', $1)
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [String(w)]);
-  await pool.query(`INSERT INTO settings (key, value) VALUES ('price_business', $1)
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [String(b)]);
+  await setSetting('price_worker', w);
+  await setSetting('price_business', b);
   PRICE_OVERRIDES = { worker: w, business: b };
+  // Bepul muddat (kun)
+  if (body.trialDays !== undefined) {
+    const td = parseInt(body.trialDays, 10);
+    if (!Number.isFinite(td) || td < 0 || td > 3660) return fail(res, 400, "Kun soni noto'g'ri", 'BAD_DAYS');
+    await setSetting('trial_days', td);
+    CONFIG.trialDays = td;
+  }
+  // Bank rekvizitlari
+  if (body.bankAccount !== undefined) {
+    CONFIG.bankAccount = String(body.bankAccount).slice(0, 80);
+    await setSetting('bank_account', CONFIG.bankAccount);
+  }
+  if (body.bankName !== undefined) {
+    CONFIG.bankName = String(body.bankName).slice(0, 80);
+    await setSetting('bank_name', CONFIG.bankName);
+  }
+  res.json({ ok: true });
+}));
+
+// Admin: foydalanuvchi parolini tiklash (parollar shifrlangan — ko'rsatib bo'lmaydi, faqat almashtiriladi)
+app.put('/api/admin/users/:id/password', requirePlatformAdmin, wrap(async (req, res) => {
+  const password = String((req.body || {}).password || '');
+  if (password.length < 6) return fail(res, 400, 'Parol kamida 6 belgi', 'PW_SHORT6');
+  const r = await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING id`,
+    [await bcrypt.hash(password, 10), parseInt(req.params.id, 10)]);
+  if (!r.rows[0]) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
   res.json({ ok: true });
 }));
 
@@ -1476,10 +1512,14 @@ app.use((err, req, res, next) => {
 initDb()
   .then(async () => {
     SESSION_SECRET = (await pool.query(`SELECT value FROM settings WHERE key = 'session_secret'`)).rows[0].value;
-    const pw = (await pool.query(`SELECT value FROM settings WHERE key = 'price_worker'`)).rows[0];
-    const pb = (await pool.query(`SELECT value FROM settings WHERE key = 'price_business'`)).rows[0];
-    if (pw) PRICE_OVERRIDES.worker = parseInt(pw.value, 10);
-    if (pb) PRICE_OVERRIDES.business = parseInt(pb.value, 10);
+    const cfg = (await pool.query(
+      `SELECT key, value FROM settings WHERE key IN ('price_worker','price_business','trial_days','bank_name','bank_account')`)).rows;
+    const cm = Object.fromEntries(cfg.map((r) => [r.key, r.value]));
+    if (cm.price_worker) PRICE_OVERRIDES.worker = parseInt(cm.price_worker, 10);
+    if (cm.price_business) PRICE_OVERRIDES.business = parseInt(cm.price_business, 10);
+    if (cm.trial_days) CONFIG.trialDays = parseInt(cm.trial_days, 10);
+    if (cm.bank_name) CONFIG.bankName = cm.bank_name;
+    if (cm.bank_account) CONFIG.bankAccount = cm.bank_account;
     app.listen(PORT, () => console.log(`LaLaKu Vaqt ${PORT}-portda ishlamoqda`));
   })
   .catch((e) => {
