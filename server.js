@@ -654,11 +654,17 @@ async function orgJobId(userId, orgId) {
     `SELECT id FROM jobs WHERE user_id = $1 AND org_id = $2`, [userId, orgId])).rows[0]?.id || null;
 }
 
-// IP tasdiqlash: jamoa allowed_ip belgilagan bo'lsa, kelish shu IP'dan bo'lishi shart
+// IP tasdiqlash: jamoa allowed_ip belgilagan bo'lsa, kelish shu tarmoqdan bo'lishi shart.
+// Aniq IP emas, /24 tarmoq (dastlabki 3 oktet) bo'yicha solishtiramiz — bir joyning
+// barcha qurilmalari (dinamik IP ham) o'tishi uchun.
+function ipPrefix(ip) {
+  const m = String(ip || '').match(/(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}/);
+  return m ? m[1] : String(ip || '');
+}
 async function ipAllowed(orgId, req) {
   const o = (await pool.query(`SELECT allowed_ip FROM orgs WHERE id = $1`, [orgId])).rows[0];
   if (!o?.allowed_ip) return true;
-  return String(req.ip || '') === o.allowed_ip;
+  return ipPrefix(req.ip) === ipPrefix(o.allowed_ip);
 }
 
 // QR skanerlash (jamoa a'zolari uchun) — joylashuv tekshiruvi bilan
@@ -1447,6 +1453,36 @@ app.get('/api/admin/users', requirePlatformAdmin, wrap(async (req, res) => {
      FROM users WHERE email ILIKE $1 OR name ILIKE $1 OR phone ILIKE $1
      ORDER BY created_at DESC LIMIT 100`, [q]);
   res.json(r.rows);
+}));
+
+// Yaratuvchi (admin) uchun bitta foydalanuvchining to'liq ma'lumoti
+app.get('/api/admin/users/:id/detail', requirePlatformAdmin, wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const u = (await pool.query(
+    `SELECT id, email, name, phone, to_char(birthdate, 'YYYY-MM-DD') AS birthdate, type, timezone,
+            pay_type AS "payType", hourly_rate::float AS "hourlyRate", tax_percent::float AS "taxPercent",
+            custom_price AS "customPrice", paid_until AS "paidUntil", created_at AS "createdAt"
+     FROM users WHERE id = $1`, [id])).rows[0];
+  if (!u) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  const now = new Date();
+  const { start, next } = monthBounds(now.getFullYear(), now.getMonth() + 1);
+  const monthMin = (await pool.query(
+    `SELECT COALESCE(SUM(ROUND(EXTRACT(EPOCH FROM (COALESCE(check_out, now()) - check_in)) / 60)), 0)::int AS m
+     FROM entries WHERE user_id = $1 AND work_date >= $2 AND work_date < $3`, [id, start, next])).rows[0].m;
+  const entriesTotal = (await pool.query(`SELECT count(*)::int AS n FROM entries WHERE user_id = $1`, [id])).rows[0].n;
+  const financeN = (await pool.query(`SELECT count(*)::int AS n FROM finance_items WHERE user_id = $1 AND active`, [id])).rows[0].n;
+  const teams = (await pool.query(
+    `SELECT o.name FROM memberships m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = $1 ORDER BY o.name`, [id])).rows.map((r) => r.name);
+  let org = null;
+  if (u.type === 'business') {
+    const o = (await pool.query(`SELECT id, name FROM orgs WHERE owner_id = $1`, [id])).rows[0];
+    if (o) {
+      const mc = (await pool.query(`SELECT count(*)::int AS n FROM memberships WHERE org_id = $1`, [o.id])).rows[0].n;
+      const bc = (await pool.query(`SELECT count(*)::int AS n FROM branches WHERE org_id = $1`, [o.id])).rows[0].n;
+      org = { name: o.name, members: mc, branches: bc };
+    }
+  }
+  res.json({ ...u, monthMinutes: monthMin, entriesTotal, financeActive: financeN, teams, org });
 }));
 
 app.put('/api/admin/users/:id', requirePlatformAdmin, wrap(async (req, res) => {
