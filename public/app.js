@@ -1670,10 +1670,10 @@
           <button class="chip" id="acc-add">＋</button></div>
         ${accounts.map((a, i) => `
           <div class="fin-row acc-row" data-acci="${i}" style="cursor:pointer">
-            <span class="avatar" style="background:${avatarColor(a.name)};width:38px;height:38px;font-size:13px">${a.type === 'business' ? '🍽' : esc(initials(a.name))}</span>
+            <span class="avatar" style="background:${avatarColor(a.name)};width:38px;height:38px;font-size:13px">${a.type === 'business' ? '🍽' : a.type === 'padmin' ? '🛡' : esc(initials(a.name))}</span>
             <div class="info">
               <div class="name">${esc(a.name)}</div>
-              <div class="sub">${esc(a.email)}</div>
+              <div class="sub">${a.type === 'padmin' ? t('padminTitle') : esc(a.email)}</div>
             </div>
             ${i === activeIdx ? `<span class="tag-live">${t('activeAcc')}</span>` : `<button class="chip acc-switch">${t('switchTo')}</button>`}
           </div>`).join('')}
@@ -1702,6 +1702,7 @@
       <label>${t('yourName')}</label><input id="p-name" value="${esc(me.name)}">
       <label>${t('email')}</label><input id="p-email" type="email" value="${esc(me.email)}">
       <label>${t('phone')}</label><input id="p-phone" type="tel" value="${esc(me.phone || '')}" placeholder="010-1234-5678">
+      <label>${t('birthdate')}</label><input id="p-bd" type="date" value="${esc(me.birthdate || '')}">
       <label>${t('changePassword')}</label><input id="p-pw" type="password" autocomplete="new-password">
       <label>${t('timezone')}</label><select id="p-tz">${tzOpts}</select>
       <div class="error-text" id="p-error"></div>
@@ -1718,6 +1719,7 @@
             name: modal.querySelector('#p-name').value,
             email: modal.querySelector('#p-email').value,
             phone: modal.querySelector('#p-phone').value,
+            birthdate: modal.querySelector('#p-bd').value,
             password: modal.querySelector('#p-pw').value || undefined,
             timezone: modal.querySelector('#p-tz').value,
           },
@@ -2682,6 +2684,10 @@
       try {
         const r = await api('/api/admin/login', { method: 'POST', body: { password: document.getElementById('admin-pw').value } });
         if (r.defaultPassword) toast(t('defaultPwWarn'), 'error', 6000);
+        // Admin ham "akkauntlar safiga" qo'shiladi (token bilan) — shundan keyin admin API'lari ishlaydi
+        upsertAccount({ id: 'padmin', name: 'Admin', email: '', type: 'padmin', token: r.token });
+        state.me = { role: 'padmin' };
+        state.addingAccount = false;
         renderPadmin();
       } catch (ex) { err.textContent = terr(ex); }
     });
@@ -2723,8 +2729,11 @@
     `;
     bindLangSel();
     document.getElementById('logout-btn').addEventListener('click', async () => {
-      await api('/api/logout', { method: 'POST' });
-      renderAuth();
+      try { await api('/api/logout', { method: 'POST' }); } catch {}
+      removeActiveAccount();
+      state.me = null;
+      if (getAccounts().length) location.reload();
+      else renderAuth();
     });
     document.querySelectorAll('.tab').forEach((tab) =>
       tab.addEventListener('click', () => { state.padTab = tab.dataset.tab; renderPadmin(); }));
@@ -2849,7 +2858,7 @@
               <span class="avatar" style="background:${avatarColor(u.name)}">${esc(initials(u.name))}</span>
               <div class="info">
                 <div class="name">${esc(u.name)} ${u.type === 'business' ? '🍽' : ''} ${u.active ? '' : `<span class="badge-inactive">${t('subExpired')}</span>`}</div>
-                <div class="sub">${esc(u.email)}${u.phone ? ` · ${esc(u.phone)}` : ''}</div>
+                <div class="sub">${esc(u.email)}${u.phone ? ` · ${esc(u.phone)}` : ''}${u.birthdate ? ` · 🎂 ${esc(u.birthdate)}` : ''}</div>
                 <div class="sub">${t('padUntil')}: ${new Date(u.paidUntil).toLocaleDateString()}</div>
               </div>
               <div class="actions">
