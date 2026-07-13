@@ -179,6 +179,14 @@ async function initDb() {
     WHERE NOT EXISTS (SELECT 1 FROM jobs j WHERE j.user_id = m.user_id AND j.org_id = m.org_id)
   `);
 
+  // Boshliq kiritgan jamoa yozuvlariga job_id bog'lash (ishchi daromadi hisoblanishi uchun)
+  await pool.query(`
+    UPDATE entries e SET job_id = j.id
+    FROM jobs j
+    WHERE e.org_id IS NOT NULL AND e.job_id IS NULL
+      AND j.user_id = e.user_id AND j.org_id = e.org_id
+  `);
+
   await pool.query(
     `INSERT INTO settings (key, value) VALUES ('session_secret', $1) ON CONFLICT (key) DO NOTHING`,
     [crypto.randomBytes(32).toString('hex')]
@@ -1133,25 +1141,31 @@ app.get('/api/org/summary', requireUser, requireBusiness, wrap(async (req, res) 
   const { year, month } = parseYearMonth(req, res);
   if (!year) return;
   const org = await orgOf(req.user.id);
+  const tz = req.user.timezone;
   const { start, next } = monthBounds(year, month);
   const members = (await pool.query(
-    `SELECT u.id, u.name, m.hourly_rate::float AS rate, m.tax_percent::float AS tax
+    `SELECT u.id, u.name, u.email, m.hourly_rate::float AS rate, m.tax_percent::float AS tax
      FROM memberships m JOIN users u ON u.id = m.user_id
      WHERE m.org_id = $1 ORDER BY u.name`, [org.id])).rows;
-  const sums = (await pool.query(
-    `SELECT user_id, work_date::text AS date,
-            SUM(ROUND(EXTRACT(EPOCH FROM (COALESCE(check_out, now()) - check_in)) / 60))::int AS minutes,
-            BOOL_OR(check_out IS NULL) AS open
+  const rows = (await pool.query(
+    `SELECT id, user_id, work_date::text AS date, check_in, check_out,
+            ROUND(EXTRACT(EPOCH FROM (COALESCE(check_out, now()) - check_in)) / 60)::int AS minutes
      FROM entries WHERE org_id = $1 AND work_date >= $2 AND work_date < $3
-     GROUP BY user_id, work_date`, [org.id, start, next])).rows;
+     ORDER BY check_in`, [org.id, start, next])).rows;
   const byUser = {};
-  for (const s of sums) (byUser[s.user_id] ||= {})[s.date] = { minutes: s.minutes, open: s.open };
+  for (const e of rows) {
+    const days = (byUser[e.user_id] ||= {});
+    const d = (days[e.date] ||= { sessions: [], minutes: 0, open: false });
+    d.sessions.push({ id: e.id, in: localTime(tz, e.check_in), out: e.check_out ? localTime(tz, e.check_out) : null, minutes: e.minutes });
+    d.minutes += e.minutes;
+    if (!e.check_out) d.open = true;
+  }
   res.json({
     year, month,
     workers: members.map((m) => {
       const days = byUser[m.id] || {};
       const totalMinutes = Object.values(days).reduce((a, d) => a + d.minutes, 0);
-      return { id: m.id, name: m.name, days, totalMinutes,
+      return { id: m.id, name: m.name, email: m.email, rate: m.rate, tax: m.tax, days, totalMinutes,
                earned: m.rate > 0 ? Math.round(totalMinutes / 60 * m.rate * (1 - (m.tax || 0) / 100)) : null };
     }),
   });
@@ -1215,14 +1229,16 @@ app.post('/api/org/entries', requireUser, requireBusiness, wrap(async (req, res)
   const member = (await pool.query(
     `SELECT 1 FROM memberships WHERE org_id = $1 AND user_id = $2`, [org.id, parseInt(userId, 10)])).rows[0];
   if (!member) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  // Ishchining shu jamoaga bog'langan ish joyi — daromad hisoblanishi uchun job_id bog'lanadi
+  const jid = await orgJobId(parseInt(userId, 10), org.id);
   try {
     await pool.query(
-      `INSERT INTO entries (user_id, org_id, work_date, check_in, check_out)
-       VALUES ($1, $2, $3::date,
+      `INSERT INTO entries (user_id, org_id, job_id, work_date, check_in, check_out)
+       VALUES ($1, $2, $8, $3::date,
                ($3 || ' ' || $4)::timestamp AT TIME ZONE $6,
                CASE WHEN $5::text IS NULL THEN NULL
                     ELSE ($7 || ' ' || $5)::timestamp AT TIME ZONE $6 END)`,
-      [parseInt(userId, 10), org.id, date, inTime, outTime || null, req.user.timezone, outDateFor(date, inTime, outTime)]);
+      [parseInt(userId, 10), org.id, date, inTime, outTime || null, req.user.timezone, outDateFor(date, inTime, outTime), jid]);
   } catch (e) {
     if (e.constraint === 'out_after_in') return fail(res, 400, "Ketish kelishdan keyin bo'lsin", 'OUT_BEFORE_IN');
     throw e;

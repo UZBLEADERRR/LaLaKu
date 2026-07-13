@@ -1681,8 +1681,9 @@
               <div class="sub">${j.payType === 'daily' ? t('payDaily') : t('payHourly')} · ${fmtMoney(j.rate)}${j.taxPercent ? ` · −${j.taxPercent}%` : ''}</div>
             </div>
             <div class="actions">
-              <button class="chip gray j-edit">✏️</button>
-              ${j.orgId ? '' : '<button class="chip red j-del">🗑</button>'}
+              ${j.orgId
+                ? `<button class="chip red j-leave" data-org="${j.orgId}" data-name="${esc(j.name)}" title="${t('leaveTeam')}">🚪</button>`
+                : '<button class="chip gray j-edit">✏️</button><button class="chip red j-del">🗑</button>'}
             </div>
           </div>`).join('') : `<p class="muted">${t('jobsNote')}</p>`}
       </div>
@@ -1751,11 +1752,21 @@
     document.getElementById('job-add').addEventListener('click', () => openJobModal(null));
     document.querySelectorAll('[data-job-row]').forEach((row) => {
       const job = jobs.find((j) => String(j.id) === row.dataset.jobRow);
-      row.querySelector('.j-edit').addEventListener('click', () => openJobModal(job));
+      row.querySelector('.j-edit')?.addEventListener('click', () => openJobModal(job));
       row.querySelector('.j-del')?.addEventListener('click', async () => {
         if (!confirm(t('delEntryConfirm'))) return;
         try {
           await api(`/api/jobs/${job.id}`, { method: 'DELETE' });
+          renderWorker();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
+      row.querySelector('.j-leave')?.addEventListener('click', async (e) => {
+        const { org, name } = e.currentTarget.dataset;
+        if (!confirm(t('leaveTeamConfirm', name))) return;
+        try {
+          await api(`/api/my/memberships/${org}`, { method: 'DELETE' });
+          state.me = await api('/api/me');
+          toast(t('deleted'), 'success');
           renderWorker();
         } catch (ex) { toast(terr(ex), 'error'); }
       });
@@ -1856,6 +1867,33 @@
     }
   }
 
+  // Ishchining maosh/soliq sozlamasi (jamoa va kalendar tabelida ishlatiladi)
+  function openMemberRate(id, name, rate, tax) {
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${t('memberRateTitle', esc(name))}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <label>${t('hourlyRate')}</label>
+      <input id="mr-rate" type="number" min="0" step="any" inputmode="decimal" value="${rate || ''}" placeholder="10030">
+      <label>${t('taxPercent')}</label>
+      <input id="mr-tax" type="number" min="0" max="100" step="any" inputmode="decimal" value="${tax || ''}" placeholder="3.3">
+      <div class="error-text" id="mr-error"></div>
+      <button class="btn" id="mr-save">${t('save')}</button>
+    `);
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelector('#mr-save').addEventListener('click', async () => {
+      const err = modal.querySelector('#mr-error');
+      err.textContent = '';
+      try {
+        await api(`/api/org/members/${id}`, {
+          method: 'PUT',
+          body: { hourlyRate: Number(modal.querySelector('#mr-rate').value || 0), taxPercent: Number(modal.querySelector('#mr-tax').value || 0) },
+        });
+        toast(t('saved'), 'success');
+        closeModal();
+        renderBusiness();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
+  }
+
   async function bizBoardTab(box) {
     const data = await api('/api/org/board');
     const atWork = data.workers.filter((w) => w.status === 'in').length;
@@ -1894,7 +1932,7 @@
 
     const grandTotal = data.workers.reduce((a, w) => a + w.totalMinutes, 0);
 
-    // WORKED rejimi — har bir ishchi uchun vertikal karta (gorizontal scroll yo'q)
+    // WORKED rejimi — har bir ishchi uchun to'liq tabel (ism, kunlar, kelish-ketish, jami, maosh)
     const workedHtml = data.workers.length ? `
       <div class="card grand-bar"><span>${t('rosterTitle')}</span>
         <span><b style="color:var(--accent)">${fmtH(grandTotal)}</b> ${t('hUnit')}</span></div>
@@ -1904,19 +1942,27 @@
           const dd = w.days[date];
           const dnum = +date.split('-')[2];
           const dow = new Date(year, month - 1, dnum).getDay();
+          const times = dd.sessions.map((s) => `${s.in}–${s.out || '…'}`).join(' ');
           return `<div class="wd-row ${dd.open ? 'open' : ''}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">
             <span class="wd-date ${dow === 0 || dow === 6 ? 'wknd' : ''}">${dnum}<small>${DOWS()[(dow + 6) % 7]}</small></span>
+            <span class="wd-times">${times}</span>
             <span class="wd-h">${fmtH(dd.minutes)}${dd.open ? ' <span class="wd-live">●</span>' : ''}</span>
           </div>`;
         }).join('');
-        return `<div class="card worker-cal">
-          <div class="wc-head" data-worker="${w.id}" data-name="${esc(w.name)}">
+        return `<div class="card worker-cal" data-worker="${w.id}" data-name="${esc(w.name)}" data-rate="${w.rate || 0}" data-tax="${w.tax || 0}">
+          <div class="wc-head">
             <span class="avatar" style="background:${avatarColor(w.name)};width:40px;height:40px;font-size:14px">${esc(initials(w.name))}</span>
             <div class="info"><div class="name">${esc(w.name)}</div>
-              <div class="sub">${dayKeys.length} ${t('dUnit')}</div></div>
-            <div class="wc-tot"><div class="v">${fmtH(w.totalMinutes)}</div>${w.earned != null ? `<div class="e">${fmtMoneyShort(w.earned)}</div>` : ''}</div>
+              <div class="sub">${dayKeys.length} ${t('dUnit')} · ${w.rate > 0 ? `${fmtMoney(w.rate)}/${t('hUnit')}` : t('noRateYet')}</div></div>
+            <button class="icon-btn wc-rate" title="${t('memberRate')}">💰</button>
+            <button class="icon-btn wc-copy" title="${t('copyReport')}">📋</button>
           </div>
           ${dayRows ? `<div class="wc-days">${dayRows}</div>` : `<p class="muted" style="margin:10px 2px 2px;font-size:13px">${t('noRecords')}</p>`}
+          <div class="wc-foot">
+            <span>${t('totalCol')}: <b>${fmtH(w.totalMinutes)}</b></span>
+            ${w.earned != null ? `<b class="salary">${fmtMoney(w.earned)}</b>` : ''}
+          </div>
+          <button class="btn outline wc-add">＋ ${t('manualAdd')}</button>
         </div>`;
       }).join('')}` : `<div class="card"><p class="muted">${t('noMembers')}</p></div>`;
 
@@ -1962,11 +2008,48 @@
       openScheduleModal(+td.dataset.worker, td.dataset.name, td.dataset.date, schedMap[`${td.dataset.worker}_${td.dataset.date}`])));
     box.querySelectorAll('td.name-col').forEach((td) => td.addEventListener('click', () =>
       openScheduleModal(+td.dataset.worker, td.dataset.name, todayStr(), schedMap[`${td.dataset.worker}_${todayStr()}`])));
-    // Worked rejimi vertikal kartalar
-    box.querySelectorAll('.wc-head').forEach((h) => h.addEventListener('click', () =>
-      openOrgDayModal(+h.dataset.worker, h.dataset.name, todayStr())));
-    box.querySelectorAll('.wd-row').forEach((r) => r.addEventListener('click', () =>
-      openOrgDayModal(+r.dataset.worker, r.dataset.name, r.dataset.date)));
+    // Worked rejimi tabel kartalari
+    box.querySelectorAll('.worker-cal').forEach((card) => {
+      const wid = +card.dataset.worker, wname = card.dataset.name;
+      const w = data.workers.find((x) => x.id === wid);
+      card.querySelector('.wc-rate')?.addEventListener('click', () =>
+        openMemberRate(wid, wname, +card.dataset.rate, +card.dataset.tax));
+      card.querySelector('.wc-copy')?.addEventListener('click', () => copyTimesheet(w, year, month));
+      card.querySelector('.wc-add')?.addEventListener('click', () => openAddDay(wid, wname));
+      card.querySelectorAll('.wd-row').forEach((r) => r.addEventListener('click', () =>
+        openOrgDayModal(+r.dataset.worker, r.dataset.name, r.dataset.date)));
+    });
+  }
+
+  // Tabelni matn sifatida nusxalash (SMS/hisobot uchun)
+  function copyTimesheet(w, year, month) {
+    const lines = [`${w.name} — ${MONTHS()[month - 1]} ${year}`];
+    for (const date of Object.keys(w.days).sort()) {
+      const dd = w.days[date];
+      const times = dd.sessions.map((s) => `${s.in}–${s.out || '…'}`).join(', ');
+      lines.push(`${+date.split('-')[2]}: ${times} (${fmtH(dd.minutes)})`);
+    }
+    lines.push(`${t('totalCol')}: ${fmtH(w.totalMinutes)}${w.earned != null ? ` · ${fmtMoney(w.earned)}` : ''}`);
+    navigator.clipboard.writeText(lines.join('\n'))
+      .then(() => toast(t('copied'), 'success'))
+      .catch(() => toast(t('genericError'), 'error'));
+  }
+
+  // Ixtiyoriy kunga soat qo'shish uchun sana tanlash
+  function openAddDay(userId, name) {
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${esc(name)}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <label>${t('dateLabel')}</label>
+      <input type="date" id="ad-date" value="${todayStr()}">
+      <button class="btn" id="ad-go">${t('manualAdd')}</button>
+    `);
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelector('#ad-go').addEventListener('click', () => {
+      const date = modal.querySelector('#ad-date').value;
+      if (!date) return;
+      closeModal();
+      openOrgDayModal(userId, name, date);
+    });
   }
 
   // Smena rejalash oynasi
@@ -2109,21 +2192,18 @@
           <button data-cm="qr" class="${org.checkMode !== 'button' ? 'active' : ''}">${t('modeQr')}</button>
           <button data-cm="button" class="${org.checkMode === 'button' ? 'active' : ''}">${t('modeButton')}</button>
         </div>
-        <p class="muted" style="font-size:13px">${t('modeNote')}</p>
       </div>
       <div class="card" style="max-width:600px">
         <h2>${t('members', org.members.length)}</h2>
         ${org.members.length ? org.members.map((m) => `
-          <div class="worker-admin-row" data-id="${m.id}">
+          <div class="member-row" data-id="${m.id}">
             <span class="avatar" style="background:${avatarColor(m.name)}">${esc(initials(m.name))}</span>
             <div class="info">
               <div class="name">${esc(m.name)}</div>
-              <div class="sub">${esc(m.email)}${m.hourlyRate > 0 ? ` · ${fmtMoney(m.hourlyRate)}/${t('hUnit')}` : ''}</div>
+              <div class="sub">${m.hourlyRate > 0 ? `${fmtMoney(m.hourlyRate)}/${t('hUnit')}${m.taxPercent ? ` · −${m.taxPercent}%` : ''}` : t('noRateYet')}</div>
             </div>
-            <div class="actions">
-              <button class="chip m-rate">${t('memberRate')}</button>
-              <button class="chip red m-remove">${t('removeMember')}</button>
-            </div>
+            <button class="icon-btn m-rate" title="${t('memberRate')}">💰</button>
+            <button class="icon-btn danger m-remove" title="${t('removeMember')}">🚪</button>
           </div>`).join('') : `<p class="muted">${t('noMembers')}</p>`}
       </div>
     `;
@@ -2160,36 +2240,9 @@
           renderBusiness();
         } catch (ex) { toast(terr(ex), 'error'); }
       }));
-    box.querySelectorAll('.worker-admin-row').forEach((row) => {
+    box.querySelectorAll('.member-row').forEach((row) => {
       const m = org.members.find((x) => String(x.id) === row.dataset.id);
-      row.querySelector('.m-rate').addEventListener('click', () => {
-        const modal = openModal(`
-          <div class="modal-head"><h2 style="margin:0">${t('memberRateTitle', esc(m.name))}</h2><button class="modal-close" id="m-close">✕</button></div>
-          <label>${t('hourlyRate')}</label>
-          <input id="mr-rate" type="number" min="0" step="any" inputmode="decimal" value="${m.hourlyRate || ''}" placeholder="10030">
-          <label>${t('taxPercent')}</label>
-          <input id="mr-tax" type="number" min="0" max="100" step="any" inputmode="decimal" value="${m.taxPercent || ''}" placeholder="3.3">
-          <div class="error-text" id="mr-error"></div>
-          <button class="btn" id="mr-save">${t('save')}</button>
-        `);
-        modal.querySelector('#m-close').addEventListener('click', closeModal);
-        modal.querySelector('#mr-save').addEventListener('click', async () => {
-          const err = modal.querySelector('#mr-error');
-          err.textContent = '';
-          try {
-            await api(`/api/org/members/${m.id}`, {
-              method: 'PUT',
-              body: {
-                hourlyRate: Number(modal.querySelector('#mr-rate').value || 0),
-                taxPercent: Number(modal.querySelector('#mr-tax').value || 0),
-              },
-            });
-            toast(t('saved'), 'success');
-            closeModal();
-            renderBusiness();
-          } catch (ex) { err.textContent = terr(ex); }
-        });
-      });
+      row.querySelector('.m-rate').addEventListener('click', () => openMemberRate(m.id, m.name, m.hourlyRate, m.taxPercent));
       row.querySelector('.m-remove').addEventListener('click', async () => {
         if (!confirm(t('removeMemberConfirm', m.name))) return;
         try {
