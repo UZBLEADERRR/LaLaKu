@@ -157,8 +157,19 @@ label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); 
   padding: 11px 0; border-bottom: 1px solid var(--line);
 }
 .fin-row:last-child { border-bottom: none; }
+.fin-group { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin: 14px 0 2px; }
+.fin-group:first-child { margin-top: 4px; }
+.fin-group span { background: var(--card-2, #eef0f6); color: var(--muted); border-radius: 20px; padding: 1px 8px; font-size: 11px; }
+.fin-group.danger { color: var(--red); }
+.fin-group.danger span { background: var(--red-soft, #fdecec); color: var(--red); }
 .fin-row .info { flex: 1; min-width: 0; }
 .fin-row .name { font-weight: 800; font-size: 14.5px; }
+.suggest-wrap { position: relative; }
+.suggest-box { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 20; background: var(--card); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; max-height: 280px; overflow-y: auto; border: 1.5px solid var(--line); }
+.suggest-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; }
+.suggest-item:hover, .suggest-item:active { background: var(--accent-soft); }
+.suggest-item .s-name { font-weight: 700; font-size: 14px; }
+.suggest-item .s-email { font-size: 12px; color: var(--muted); }
 .fin-row .sub { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-top: 1px; }
 .fin-row .sub.urgent { color: var(--red); font-weight: 800; }
 .fin-row .amt { font-variant-numeric: tabular-nums; color: var(--red); white-space: nowrap; }
