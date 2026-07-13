@@ -498,6 +498,7 @@ async function meJson(u) {
     role: 'user',
     id: u.id, email: u.email, name: u.name, type: u.type,
     phone: u.phone || '',
+    birthdate: u.birthdate ? new Date(u.birthdate).toISOString().slice(0, 10) : '',
     timezone: u.timezone,
     payType: u.pay_type, hourlyRate: +u.hourly_rate, dailyRate: +u.daily_rate, taxPercent: +u.tax_percent,
     active: isActive(u),
@@ -552,6 +553,11 @@ app.put('/api/profile', requireUser, wrap(async (req, res) => {
       if (dup) return fail(res, 400, "Bu telefon band", 'PHONE_TAKEN');
     }
     await pool.query(`UPDATE users SET phone = $1 WHERE id = $2`, [p || null, req.user.id]);
+  }
+  if ((req.body || {}).birthdate !== undefined) {
+    const bd = String(req.body.birthdate || '').trim() || null;
+    if (bd && !/^\d{4}-\d{2}-\d{2}$/.test(bd)) return fail(res, 400, "Sana noto'g'ri", 'BAD_DATE');
+    await pool.query(`UPDATE users SET birthdate = $1 WHERE id = $2`, [bd, req.user.id]);
   }
   res.json({ ok: true });
 }));
@@ -1413,7 +1419,12 @@ app.post('/api/admin/login', wrap(async (req, res) => {
     return fail(res, 401, "Parol noto'g'ri", 'BAD_PASSWORD');
   }
   setSessionCookie(res, { t: 'padmin' }, 7);
-  res.json({ ok: true, defaultPassword: ADMIN_PASSWORD === 'admin123' });
+  // Ko'p-akkaunt tizimi uchun token — admin ham akkauntlar safida bo'ladi
+  res.json({
+    ok: true,
+    defaultPassword: ADMIN_PASSWORD === 'admin123',
+    token: signToken({ t: 'padmin', exp: Date.now() + 7 * 86400_000 }),
+  });
 }));
 
 app.get('/api/admin/overview', requirePlatformAdmin, wrap(async (req, res) => {
@@ -1431,8 +1442,8 @@ app.get('/api/admin/overview', requirePlatformAdmin, wrap(async (req, res) => {
 app.get('/api/admin/users', requirePlatformAdmin, wrap(async (req, res) => {
   const q = `%${String(req.query.q || '').trim()}%`;
   const r = await pool.query(
-    `SELECT id, email, name, phone, type, paid_until AS "paidUntil", created_at AS "createdAt",
-            (paid_until > now()) AS active
+    `SELECT id, email, name, phone, to_char(birthdate, 'YYYY-MM-DD') AS birthdate, type,
+            paid_until AS "paidUntil", created_at AS "createdAt", (paid_until > now()) AS active
      FROM users WHERE email ILIKE $1 OR name ILIKE $1 OR phone ILIKE $1
      ORDER BY created_at DESC LIMIT 100`, [q]);
   res.json(r.rows);
