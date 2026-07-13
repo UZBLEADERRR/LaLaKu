@@ -715,3 +715,20 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 
 /* Segment / calendar toggle */
 .cal-toggle { display: flex; gap: 6px; margin-bottom: 12px; }
+
+/* ---------- Biznes jadval: summa sig'ishi ---------- */
+table.summary td.total-col, table.summary th.total-col { min-width: 84px; padding: 8px 8px; }
+table.summary td.total-col span { font-size: 10.5px; white-space: nowrap; color: var(--green); }
+table.summary td.day-cell { min-width: 40px; line-height: 1.25; }
+/* reja rejimida katak (start/end 2 qator) */
+.sched-day-cell, table.summary td.day-cell br + * { font-size: 11px; }
+
+/* Reminderdagi to'lash tugmasi joyi */
+.fin-row .r-pay { flex-shrink: 0; }
+
+/* Prognoz/sozlamalar ko'rinishi */
+.remain-card .sal-row .muted { font-size: 13.5px; }
+#fc-days, #fc-hours, #fc-rate, #fc-tax { text-align: center; }
+
+/* Profil soatlik maosh nishoni */
+.ph-badges .chip b { color: inherit; }
