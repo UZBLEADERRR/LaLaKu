@@ -170,6 +170,8 @@ async function initDb() {
     ALTER TABLE branches ADD COLUMN IF NOT EXISTS radius INTEGER NOT NULL DEFAULT 50;
     ALTER TABLE memberships ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC NOT NULL DEFAULT 0;
     ALTER TABLE entries ADD COLUMN IF NOT EXISTS job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL;
+    ALTER TABLE orgs ADD COLUMN IF NOT EXISTS allowed_ip TEXT;
+    ALTER TABLE orgs ADD COLUMN IF NOT EXISTS auto_checkout BOOLEAN NOT NULL DEFAULT FALSE;
   `);
 
   // Mavjud jamoa a'zoliklari uchun bog'langan ish joyi yozuvlari
@@ -598,11 +600,18 @@ async function openEntry(userId) {
 app.get('/api/my/status', requireUser, wrap(async (req, res) => {
   const tz = req.user.timezone;
   const open = await openEntry(req.user.id);
-  let orgName = null, orgCheckMode = null;
+  let orgName = null, orgCheckMode = null, autoCheckout = false, geofences = [];
   if (open?.org_id) {
-    const o = (await pool.query(`SELECT name, check_mode FROM orgs WHERE id = $1`, [open.org_id])).rows[0];
+    const o = (await pool.query(`SELECT name, check_mode, auto_checkout FROM orgs WHERE id = $1`, [open.org_id])).rows[0];
     orgName = o?.name || null;
     orgCheckMode = o?.check_mode || null;
+    autoCheckout = !!o?.auto_checkout;
+    // Avto-chiqish uchun filial joylashuvlari (mijoz masofani tekshiradi)
+    if (autoCheckout) {
+      geofences = (await pool.query(
+        `SELECT lat, lng, radius FROM branches WHERE org_id = $1 AND lat IS NOT NULL AND lng IS NOT NULL`,
+        [open.org_id])).rows;
+    }
   }
   res.json({
     checkedIn: !!open,
@@ -611,6 +620,7 @@ app.get('/api/my/status', requireUser, wrap(async (req, res) => {
     sinceIso: open ? open.check_in.toISOString() : null,
     orgName, orgId: open?.org_id || null, orgCheckMode,
     jobId: open?.job_id || null,
+    autoCheckout, geofences,
   });
 }));
 
@@ -638,6 +648,13 @@ async function orgJobId(userId, orgId) {
     `SELECT id FROM jobs WHERE user_id = $1 AND org_id = $2`, [userId, orgId])).rows[0]?.id || null;
 }
 
+// IP tasdiqlash: jamoa allowed_ip belgilagan bo'lsa, kelish shu IP'dan bo'lishi shart
+async function ipAllowed(orgId, req) {
+  const o = (await pool.query(`SELECT allowed_ip FROM orgs WHERE id = $1`, [orgId])).rows[0];
+  if (!o?.allowed_ip) return true;
+  return String(req.ip || '') === o.allowed_ip;
+}
+
 // QR skanerlash (jamoa a'zolari uchun) — joylashuv tekshiruvi bilan
 app.post('/api/scan', requireUser, requireActive, wrap(async (req, res) => {
   const code = String((req.body || {}).code || '').trim();
@@ -648,6 +665,10 @@ app.post('/api/scan', requireUser, requireActive, wrap(async (req, res) => {
   const member = (await pool.query(
     `SELECT 1 FROM memberships WHERE user_id = $1 AND org_id = $2`, [req.user.id, b.org_id])).rows[0];
   if (!member) return fail(res, 403, "Siz bu jamoaning a'zosi emassiz", 'NOT_MEMBER');
+  // IP tekshiruvi faqat kelishda (ochiq yozuv bo'lmasa)
+  if (!(await openEntry(req.user.id)) && !(await ipAllowed(b.org_id, req))) {
+    return fail(res, 403, "Siz ish joyi tarmog'ida (Wi-Fi) emassiz", 'IP_MISMATCH');
+  }
   const geo = geofenceCheck([b], lat, lng);
   if (!geo.ok) {
     return fail(res, 403, geo.code === 'TOO_FAR'
@@ -675,6 +696,7 @@ app.post('/api/punch', requireUser, requireActive, wrap(async (req, res) => {
     if (!member) return fail(res, 403, "Siz bu jamoaning a'zosi emassiz", 'NOT_MEMBER');
     const org = (await pool.query(`SELECT check_mode FROM orgs WHERE id = $1`, [oid])).rows[0];
     if (org?.check_mode === 'qr') return fail(res, 400, 'Bu jamoada QR skanerlash kerak', 'USE_QR');
+    if (!(await ipAllowed(oid, req))) return fail(res, 403, "Siz ish joyi tarmog'ida (Wi-Fi) emassiz", 'IP_MISMATCH');
     const branches = (await pool.query(
       `SELECT lat, lng, radius FROM branches WHERE org_id = $1`, [oid])).rows;
     const geo = geofenceCheck(branches, lat, lng);
@@ -1041,13 +1063,16 @@ app.get('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
     id: org.id, name: org.name,
     inviteToken: org.invite_token,
     checkMode: org.check_mode,
+    allowedIp: org.allowed_ip || null,
+    autoCheckout: !!org.auto_checkout,
     branches, members, pendingInvites,
   });
 }));
 
 app.put('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
   const org = await orgOf(req.user.id);
-  const { name, checkMode } = req.body || {};
+  const body = req.body || {};
+  const { name, checkMode } = body;
   if (name !== undefined) {
     const n = String(name).trim();
     if (!n) return fail(res, 400, 'Nomini kiriting', 'NAME_REQUIRED');
@@ -1056,6 +1081,14 @@ app.put('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
   if (checkMode !== undefined) {
     const m = checkMode === 'button' ? 'button' : 'qr';
     await pool.query(`UPDATE orgs SET check_mode = $1 WHERE id = $2`, [m, org.id]);
+  }
+  // IP tasdiqlash: 'current' — hozirgi IP saqlanadi, null — o'chiriladi
+  if (body.allowedIp !== undefined) {
+    const ip = body.allowedIp === 'current' ? String(req.ip || '').slice(0, 64) : (body.allowedIp ? String(body.allowedIp).slice(0, 64) : null);
+    await pool.query(`UPDATE orgs SET allowed_ip = $1 WHERE id = $2`, [ip, org.id]);
+  }
+  if (body.autoCheckout !== undefined) {
+    await pool.query(`UPDATE orgs SET auto_checkout = $1 WHERE id = $2`, [!!body.autoCheckout, org.id]);
   }
   res.json({ ok: true });
 }));
