@@ -442,6 +442,34 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 .wd-live { color: var(--amber); font-size: 9px; vertical-align: middle; }
 .export-row { display: flex; gap: 10px; margin-bottom: 12px; }
 .export-row .btn { flex: 1; margin: 0; }
+
+/* Tabel — sana qatorlar, ishchi ustunlar (Koreya uslubi) */
+table.tabel { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+table.tabel th, table.tabel td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line); padding: 7px 6px; text-align: center; white-space: nowrap; }
+table.tabel thead th { position: sticky; top: 0; z-index: 3; background: #eef0f6; font-weight: 800; color: var(--text); }
+table.tabel th.corner { position: sticky; left: 0; z-index: 4; background: #eef0f6; min-width: 62px; }
+table.tabel td.d-col { position: sticky; left: 0; z-index: 2; background: var(--card); font-weight: 800; min-width: 62px; text-align: left; padding-left: 10px; box-shadow: 1px 0 0 var(--line); }
+table.tabel td.d-col small { color: var(--muted); font-weight: 700; margin-left: 4px; }
+table.tabel th.w-col { cursor: pointer; min-width: 82px; }
+table.tabel th.w-col .wh-av { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 9px; color: #fff; font-size: 11px; font-weight: 800; margin-right: 6px; vertical-align: middle; }
+table.tabel th.w-col .wh-nm { vertical-align: middle; }
+table.tabel td.cell { color: #b9bdd0; cursor: pointer; line-height: 1.3; }
+table.tabel td.cell.has { color: var(--green); font-weight: 700; }
+table.tabel td.cell.open { color: var(--amber); font-weight: 800; }
+table.tabel td.cell.plan { color: var(--accent); font-weight: 700; }
+table.tabel tr.sat td { background: #eaf3fb; }
+table.tabel tr.sat td.d-col { background: #dcebf8; color: #1d4ed8; }
+table.tabel tr.sun td { background: #fdeef2; }
+table.tabel tr.sun td.d-col { background: #fbdfe8; color: #be185d; }
+table.tabel tfoot td { background: var(--green-soft); font-weight: 800; color: var(--green); border-top: 2px solid var(--green); }
+table.tabel tfoot td.d-col { background: #cdeede; z-index: 2; }
+[data-theme="dark"] table.tabel thead th, [data-theme="dark"] table.tabel th.corner { background: #232741; }
+[data-theme="dark"] table.tabel td.d-col { background: var(--card); }
+[data-theme="dark"] table.tabel tr.sat td { background: #1c2740; }
+[data-theme="dark"] table.tabel tr.sun td { background: #33203050; }
+[data-theme="dark"] table.tabel td.cell { color: #565b7a; }
+[data-theme="kakaodark"] table.tabel thead th, [data-theme="kakaodark"] table.tabel th.corner { background: #2e2720; }
+[data-theme="kakaodark"] table.tabel td.d-col { background: var(--card); }
 .mini-month { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 10px 0 4px; }
 .mm-day { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 9px; font-size: 12px; font-weight: 700; cursor: pointer; background: var(--card-2, #eef0f6); color: var(--muted); }
 .mm-day.worked { background: var(--green-soft); color: var(--green); font-weight: 800; }

@@ -2035,78 +2035,45 @@
     const schedMap = {};
     for (const s of sched.schedules) schedMap[`${s.userId}_${s.date}`] = s;
 
-    const grandTotal = data.workers.reduce((a, w) => a + w.totalMinutes, 0);
-
-    // WORKED rejimi — har bir ishchi uchun to'liq oylik tabel (ish/dam kunlari, kelish-ketish, jami, maosh)
-    const workedHtml = data.workers.length ? `
-      <div class="card grand-bar"><span>${t('rosterTitle')}</span>
-        <span><b style="color:var(--accent)">${fmtH(grandTotal)}</b> ${t('hUnit')}</span></div>
-      <div class="export-row">
-        <button class="btn outline" id="ts-csv">⬇ Excel</button>
-        <button class="btn outline" id="ts-pdf">🖨 PDF</button>
-      </div>
-      ${data.workers.map((w) => {
-        const workedCount = Object.keys(w.days || {}).length;
-        // To'liq oy: har bir kun (ish yoki dam) mini-katakda ko'rinadi
-        let miniCells = '';
-        for (let d = 1; d <= daysInMonth; d++) {
-          const date = `${year}-${pad(month)}-${pad(d)}`;
-          const dd = w.days[date];
-          const cls = dd ? (dd.open ? 'open' : 'worked') : 'rest';
-          miniCells += `<span class="mm-day ${cls}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${d}</span>`;
-        }
-        const dayKeys = Object.keys(w.days || {}).sort();
-        const dayRows = dayKeys.map((date) => {
-          const dd = w.days[date];
-          const dnum = +date.split('-')[2];
-          const dow = new Date(year, month - 1, dnum).getDay();
-          const times = dd.sessions.map((s) => `${s.in}–${s.out || '…'}`).join(' ');
-          return `<div class="wd-row ${dd.open ? 'open' : ''}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">
-            <span class="wd-date ${dow === 0 || dow === 6 ? 'wknd' : ''}">${dnum}<small>${DOWS()[(dow + 6) % 7]}</small></span>
-            <span class="wd-times">${times}</span>
-            <span class="wd-h">${fmtH(dd.minutes)}${dd.open ? ' <span class="wd-live">●</span>' : ''}</span>
-          </div>`;
-        }).join('');
-        return `<div class="card worker-cal" data-worker="${w.id}" data-name="${esc(w.name)}" data-rate="${w.rate || 0}" data-tax="${w.tax || 0}">
-          <div class="wc-head">
-            <span class="avatar" style="background:${avatarColor(w.name)};width:40px;height:40px;font-size:14px">${esc(initials(w.name))}</span>
-            <div class="info"><div class="name">${esc(w.name)}</div>
-              <div class="sub">${t('workedRestDays', workedCount, daysInMonth - workedCount)} · ${w.rate > 0 ? `${fmtMoney(w.rate)}/${t('hUnit')}` : t('noRateYet')}</div></div>
-            <button class="icon-btn wc-rate" title="${t('memberRate')}">💰</button>
-            <button class="icon-btn wc-copy" title="${t('copyReport')}">📋</button>
-          </div>
-          <div class="mini-month">${miniCells}</div>
-          ${dayRows ? `<div class="wc-days">${dayRows}</div>` : `<p class="muted" style="margin:10px 2px 2px;font-size:13px">${t('noRecords')}</p>`}
-          <div class="wc-foot">
-            <span>${t('totalCol')}: <b>${fmtH(w.totalMinutes)}</b></span>
-            ${w.earned != null ? `<b class="salary">${fmtMoney(w.earned)}</b>` : ''}
-          </div>
-          <button class="btn outline wc-add">＋ ${t('manualAdd')}</button>
-        </div>`;
-      }).join('')}` : `<div class="card"><p class="muted">${t('noMembers')}</p></div>`;
-
-    // SCHEDULE rejimi — jadval (istalgan kunni bosib reja qo'shish uchun)
-    let scheduleHtml = `<div class="card"><p class="muted">${t('noMembers')}</p></div>`;
-    if (data.workers.length) {
-      const headCells = [];
-      for (let d = 1; d <= daysInMonth; d++) {
-        const dow = new Date(year, month - 1, d).getDay();
-        headCells.push(`<th class="${dow === 0 || dow === 6 ? 'wknd' : ''}">${d}<br><span style="font-weight:700;opacity:.75">${DOWS()[(dow + 6) % 7]}</span></th>`);
-      }
-      const rows = data.workers.map((w) => {
-        let cells = '';
-        for (let d = 1; d <= daysInMonth; d++) {
-          const date = `${year}-${pad(month)}-${pad(d)}`;
+    // TABEL — sana (1..31) qatorlar, ishchilar ustunlar (Koreya uslubidagi jadval)
+    const workerHead = data.workers.map((w) =>
+      `<th class="w-col" data-worker="${w.id}" data-name="${esc(w.name)}" data-rate="${w.rate || 0}" data-tax="${w.tax || 0}" title="${t('memberRate')}">
+        <span class="wh-av" style="background:${avatarColor(w.name)}">${esc(initials(w.name))}</span><span class="wh-nm">${esc(w.name)}</span></th>`).join('');
+    let bodyRows = '';
+    for (let d = 1; d <= daysInMonth; d++) {
+      const date = `${year}-${pad(month)}-${pad(d)}`;
+      const dow = new Date(year, month - 1, d).getDay();
+      const rowCls = dow === 0 ? 'sun' : dow === 6 ? 'sat' : '';
+      const cells = data.workers.map((w) => {
+        if (mode === 'schedule') {
           const sc = schedMap[`${w.id}_${date}`];
-          cells += `<td class="day-cell ${sc ? 'has' : ''}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${sc ? `${sc.start}<br>${sc.end}` : '·'}</td>`;
+          return `<td class="cell ${sc ? 'plan' : ''}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${sc ? `${sc.start}<br>${sc.end}` : '·'}</td>`;
         }
-        return `<tr><td class="name-col" data-worker="${w.id}" data-name="${esc(w.name)}">${esc(w.name)}</td>${cells}</tr>`;
+        const dd = w.days[date];
+        if (!dd) return `<td class="cell" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">·</td>`;
+        const times = dd.sessions.map((s) => `${s.in}~${s.out || '…'}`).join('<br>');
+        return `<td class="cell ${dd.open ? 'open' : 'has'}" data-worker="${w.id}" data-date="${date}" data-name="${esc(w.name)}">${times}</td>`;
       }).join('');
-      scheduleHtml = `<div class="table-wrap"><table class="summary">
-          <thead><tr><th class="name-col">${t('workerCol')}</th>${headCells.join('')}</tr></thead>
-          <tbody>${rows}</tbody></table></div>
-        <p class="muted" style="margin:10px 4px 14px">${t('noSchedule')}</p>`;
+      bodyRows += `<tr class="${rowCls}"><td class="d-col">${d}<small>${DOWS()[(dow + 6) % 7]}</small></td>${cells}</tr>`;
     }
+    let foot = '';
+    if (mode === 'schedule') {
+      const planMin = (w) => Object.keys(schedMap).filter((k) => k.startsWith(`${w.id}_`)).reduce((a, k) => a + shiftMinutes(schedMap[k].start, schedMap[k].end), 0);
+      foot = `<tfoot><tr class="sum"><td class="d-col">${t('totalCol')}</td>${data.workers.map((w) => `<td>${fmtH(planMin(w))}</td>`).join('')}</tr></tfoot>`;
+    } else {
+      const sumRow = (label, vals) => `<tr class="sum"><td class="d-col">${label}</td>${vals.map((v) => `<td>${v}</td>`).join('')}</tr>`;
+      foot = `<tfoot>
+        ${sumRow(t('workDaysRow'), data.workers.map((w) => Object.keys(w.days).length + ' ' + t('dUnit')))}
+        ${sumRow(t('totalCol'), data.workers.map((w) => fmtH(w.totalMinutes)))}
+        ${sumRow(t('salary'), data.workers.map((w) => (w.earned != null ? fmtMoneyShort(w.earned) : '—')))}
+        ${sumRow(t('restDaysRow'), data.workers.map((w) => (daysInMonth - Object.keys(w.days).length) + ' ' + t('dUnit')))}
+      </tfoot>`;
+    }
+    const tableHtml = data.workers.length
+      ? `<div class="table-wrap"><table class="tabel"><thead><tr><th class="corner">${t('dateLabel')}</th>${workerHead}</tr></thead>
+          <tbody>${bodyRows}</tbody>${foot}</table></div>
+         <p class="muted" style="margin:10px 4px 14px">${mode === 'schedule' ? t('noSchedule') : t('tableHint')}</p>`
+      : `<div class="card"><p class="muted">${t('noMembers')}</p></div>`;
 
     box.innerHTML = `
       <div class="cal-toggle">
@@ -2117,30 +2084,23 @@
         <div class="cal-title">${calTitle(year, month)}</div>
         <div class="cal-nav"><button id="cal-prev">‹</button><button id="cal-next">›</button></div>
       </div>
-      ${mode === 'schedule' ? scheduleHtml : workedHtml}
+      ${mode === 'worked' && data.workers.length ? `<div class="export-row">
+        <button class="btn outline" id="ts-csv">⬇ Excel</button>
+        <button class="btn outline" id="ts-pdf">🖨 PDF</button></div>` : ''}
+      ${tableHtml}
     `;
     bindCalendarNav(renderBusiness);
     box.querySelectorAll('[data-bcm]').forEach((b) =>
       b.addEventListener('click', () => { state.bizCalMode = b.dataset.bcm; renderBusiness(); }));
-    // Reja rejimi jadvali
-    box.querySelectorAll('td.day-cell').forEach((td) => td.addEventListener('click', () =>
-      openScheduleModal(+td.dataset.worker, td.dataset.name, td.dataset.date, schedMap[`${td.dataset.worker}_${td.dataset.date}`])));
-    box.querySelectorAll('td.name-col').forEach((td) => td.addEventListener('click', () =>
-      openScheduleModal(+td.dataset.worker, td.dataset.name, todayStr(), schedMap[`${td.dataset.worker}_${todayStr()}`])));
-    // Worked rejimi tabel kartalari
     document.getElementById('ts-csv')?.addEventListener('click', () => exportTimesheetCsv(data, year, month));
     document.getElementById('ts-pdf')?.addEventListener('click', () => printTimesheet(data, year, month));
-    box.querySelectorAll('.worker-cal').forEach((card) => {
-      const wid = +card.dataset.worker, wname = card.dataset.name;
-      const w = data.workers.find((x) => x.id === wid);
-      card.querySelector('.wc-rate')?.addEventListener('click', () =>
-        openMemberRate(wid, wname, +card.dataset.rate, +card.dataset.tax));
-      card.querySelector('.wc-copy')?.addEventListener('click', () => copyTimesheet(w, year, month));
-      card.querySelector('.wc-add')?.addEventListener('click', () => openAddDay(wid, wname));
-      const openDay = (el) => openOrgDayModal(+el.dataset.worker, el.dataset.name, el.dataset.date);
-      card.querySelectorAll('.wd-row').forEach((r) => r.addEventListener('click', () => openDay(r)));
-      card.querySelectorAll('.mm-day').forEach((c) => c.addEventListener('click', () => openDay(c)));
-    });
+    // Ishchi ustuni sarlavhasi — maosh/soliq sozlash
+    box.querySelectorAll('th.w-col').forEach((th) => th.addEventListener('click', () =>
+      openMemberRate(+th.dataset.worker, th.dataset.name, +th.dataset.rate, +th.dataset.tax)));
+    // Katakni bosib tahrirlash (ish yoki reja)
+    box.querySelectorAll('td.cell').forEach((td) => td.addEventListener('click', () => mode === 'schedule'
+      ? openScheduleModal(+td.dataset.worker, td.dataset.name, td.dataset.date, schedMap[`${td.dataset.worker}_${td.dataset.date}`])
+      : openOrgDayModal(+td.dataset.worker, td.dataset.name, td.dataset.date)));
   }
 
   // To'liq oylik tabel — barcha ishchilar, har kun (soat/dam), jami va maosh
