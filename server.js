@@ -20,7 +20,7 @@ const DATABASE_URL = process.env.DATABASE_URL;
 const PRICES = { worker: 990, business: 2900 }; // standart, admin o'zgartira oladi
 let PRICE_OVERRIDES = {};
 // Admin o'zgartira oladigan global sozlamalar (boot'da settings'dan yuklanadi)
-const CONFIG = { trialDays: 15, bankName: '토스뱅크 (Toss Bank)', bankAccount: '1000-8922-1696' };
+const CONFIG = { trialDays: 15, bankName: '토스뱅크 (Toss Bank)', bankAccount: '1000-8922-1696', premiumEnabled: true };
 async function priceFor(u) {
   if (u.custom_price != null) return u.custom_price;
   return PRICE_OVERRIDES[u.type] ?? PRICES[u.type];
@@ -356,8 +356,8 @@ function requireUser(req, res, next) {
   }).catch(next);
 }
 
-// Obuna faolmi (sinov muddati yoki to'lov)
-const isActive = (u) => new Date(u.paid_until) > new Date();
+// Obuna faolmi (premium o'chirilgan bo'lsa hamma bepul; aks holda sinov/to'lov muddati)
+const isActive = (u) => !CONFIG.premiumEnabled || new Date(u.paid_until) > new Date();
 function requireActive(req, res, next) {
   if (!isActive(req.user)) return fail(res, 402, 'Obuna muddati tugagan', 'SUB_EXPIRED');
   next();
@@ -414,27 +414,26 @@ const normPhone = (p) => String(p || '').replace(/[^0-9+]/g, '');
 
 app.post('/api/register', wrap(async (req, res) => {
   if (rateLimited(req.ip)) return fail(res, 429, "Urinishlar ko'p", 'RATE_LIMIT');
-  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  const emailIn = String((req.body || {}).email || '').trim().toLowerCase();
   const password = String((req.body || {}).password || '');
   const name = String((req.body || {}).name || '').trim();
   const type = (req.body || {}).type === 'business' ? 'business' : 'worker';
   const businessName = String((req.body || {}).businessName || '').trim();
   const phone = normPhone((req.body || {}).phone);
   const birthdate = String((req.body || {}).birthdate || '').trim() || null;
-  if (!EMAIL_RE.test(email)) return fail(res, 400, "Email noto'g'ri", 'BAD_EMAIL');
-  if (phone && !PHONE_RE.test(phone)) return fail(res, 400, "Telefon raqam noto'g'ri", 'BAD_PHONE');
-  if (birthdate && !/^\d{4}-\d{2}-\d{2}$/.test(birthdate)) return fail(res, 400, "Sana noto'g'ri", 'BAD_DATE');
-  // Parol ixtiyoriy — telefon + tug'ilgan kun bo'lsa, tug'ilgan kun parol o'rnida
-  if (!password && !(phone && birthdate)) return fail(res, 400, "Parol kamida 6 belgi", 'PW_SHORT6');
-  if (password && password.length < 6) return fail(res, 400, "Parol kamida 6 belgi", 'PW_SHORT6');
+  // Yangi soddalashtirilgan ro'yxat: ism + telefon + tug'ilgan kun yetarli; parol va email ixtiyoriy
   if (!name) return fail(res, 400, 'Ism kiriting', 'NAME_REQUIRED');
+  if (!phone || !PHONE_RE.test(phone)) return fail(res, 400, "Telefon raqam noto'g'ri", 'BAD_PHONE');
+  if (!birthdate || !/^\d{4}-\d{2}-\d{2}$/.test(birthdate)) return fail(res, 400, "Tug'ilgan kunni kiriting", 'BAD_DATE');
+  if (password && password.length < 6) return fail(res, 400, "Parol kamida 6 belgi", 'PW_SHORT6');
+  if (emailIn && !EMAIL_RE.test(emailIn)) return fail(res, 400, "Email noto'g'ri", 'BAD_EMAIL');
   if (type === 'business' && !businessName) return fail(res, 400, 'Oshxona nomini kiriting', 'BIZ_NAME_REQUIRED');
+  // Email ixtiyoriy — kiritilmasa telefon asosida ichki email yaratiladi (login telefon+tug'ilgan kun orqali)
+  const email = emailIn || `${phone.replace(/\D/g, '')}@albafit.local`;
+  const dupP = (await pool.query(`SELECT 1 FROM users WHERE phone = $1`, [phone])).rows[0];
+  if (dupP) return fail(res, 400, "Bu telefon ro'yxatdan o'tgan", 'PHONE_TAKEN');
   const dup = (await pool.query(`SELECT 1 FROM users WHERE email = $1`, [email])).rows[0];
   if (dup) return fail(res, 400, "Bu email ro'yxatdan o'tgan", 'EMAIL_TAKEN');
-  if (phone) {
-    const dupP = (await pool.query(`SELECT 1 FROM users WHERE phone = $1`, [phone])).rows[0];
-    if (dupP) return fail(res, 400, "Bu telefon ro'yxatdan o'tgan", 'PHONE_TAKEN');
-  }
 
   const hash = await bcrypt.hash(password || birthdate, 10);
   const u = (await pool.query(
@@ -1503,6 +1502,7 @@ app.get('/api/admin/prices', requirePlatformAdmin, wrap(async (req, res) => {
     trialDays: CONFIG.trialDays,
     bankName: CONFIG.bankName,
     bankAccount: CONFIG.bankAccount,
+    premiumEnabled: CONFIG.premiumEnabled,
   });
 }));
 
@@ -1536,6 +1536,17 @@ app.put('/api/admin/prices', requirePlatformAdmin, wrap(async (req, res) => {
     CONFIG.bankName = String(body.bankName).slice(0, 80);
     await setSetting('bank_name', CONFIG.bankName);
   }
+  if (body.premiumEnabled !== undefined) {
+    CONFIG.premiumEnabled = !!body.premiumEnabled;
+    await setSetting('premium_enabled', CONFIG.premiumEnabled ? '1' : '0');
+  }
+  res.json({ ok: true });
+}));
+
+// Barcha foydalanuvchi ma'lumotlarini tozalash (faqat admin, sozlamalar saqlanadi)
+app.post('/api/admin/reset', requirePlatformAdmin, wrap(async (req, res) => {
+  if (String((req.body || {}).confirm || '') !== 'RESET') return fail(res, 400, 'Tasdiqlang', 'CONFIRM_REQUIRED');
+  await pool.query(`TRUNCATE users RESTART IDENTITY CASCADE`);
   res.json({ ok: true });
 }));
 
@@ -1606,13 +1617,14 @@ initDb()
   .then(async () => {
     SESSION_SECRET = (await pool.query(`SELECT value FROM settings WHERE key = 'session_secret'`)).rows[0].value;
     const cfg = (await pool.query(
-      `SELECT key, value FROM settings WHERE key IN ('price_worker','price_business','trial_days','bank_name','bank_account')`)).rows;
+      `SELECT key, value FROM settings WHERE key IN ('price_worker','price_business','trial_days','bank_name','bank_account','premium_enabled')`)).rows;
     const cm = Object.fromEntries(cfg.map((r) => [r.key, r.value]));
     if (cm.price_worker) PRICE_OVERRIDES.worker = parseInt(cm.price_worker, 10);
     if (cm.price_business) PRICE_OVERRIDES.business = parseInt(cm.price_business, 10);
     if (cm.trial_days) CONFIG.trialDays = parseInt(cm.trial_days, 10);
     if (cm.bank_name) CONFIG.bankName = cm.bank_name;
     if (cm.bank_account) CONFIG.bankAccount = cm.bank_account;
+    if (cm.premium_enabled !== undefined) CONFIG.premiumEnabled = cm.premium_enabled === '1';
     app.listen(PORT, () => console.log(`LaLaKu Vaqt ${PORT}-portda ishlamoqda`));
   })
   .catch((e) => {

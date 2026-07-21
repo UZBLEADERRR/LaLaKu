@@ -195,6 +195,7 @@
     joinToken: null,
     timerId: null,
     geoWatchId: null,
+    loginMode: 'phone',
   };
 
   // ---------- Akkauntlar (bitta qurilmada bir nechta, Telegram kabi) ----------
@@ -542,7 +543,7 @@
             <button type="button" data-lm="email" class="${state.loginMode !== 'phone' ? 'active' : ''}">${t('loginEmail')}</button>
             <button type="button" data-lm="phone" class="${state.loginMode === 'phone' ? 'active' : ''}">${t('loginPhone')}</button>
           </div>` : ''}
-          <div id="f-email" class="${mode === 'login' && state.loginMode === 'phone' ? 'hidden' : ''}">
+          <div id="f-email" class="${mode === 'signup' || state.loginMode === 'phone' ? 'hidden' : ''}">
             <label>${t('email')}</label>
             <input id="auth-email" type="email" autocomplete="email" inputmode="email">
           </div>
@@ -2738,6 +2739,16 @@
         <input id="pr-ba" value="${esc(prices.bankAccount || '')}">
         <div class="error-text" id="pr-berror"></div>
         <button class="btn" id="pr-bsave">${t('save')}</button>
+      </div>
+      <div class="card" style="max-width:480px">
+        <div class="set-row"><span><b>${t('premiumRow')}</b><br><small class="muted">${t('premiumNote')}</small></span>
+          <button class="chip ${prices.premiumEnabled ? '' : 'gray'}" id="pr-premium">${prices.premiumEnabled ? t('on') : t('off')}</button>
+        </div>
+      </div>
+      <div class="card" style="max-width:480px;border:1.5px solid var(--red-soft,#fdecec)">
+        <h2 style="color:var(--red)">${t('dangerZone')}</h2>
+        <p class="muted" style="font-size:13px">${t('resetNote')}</p>
+        <button class="btn red" id="pr-reset">${t('resetAll')}</button>
       </div>`;
     document.getElementById('pr-save').addEventListener('click', async () => {
       const err = document.getElementById('pr-error');
@@ -2770,6 +2781,23 @@
         });
         toast(t('saved'), 'success');
       } catch (ex) { err.textContent = terr(ex); }
+    });
+    document.getElementById('pr-premium').addEventListener('click', async () => {
+      try {
+        await api('/api/admin/prices', { method: 'PUT', body: {
+          worker: document.getElementById('pr-w').value, business: document.getElementById('pr-b').value,
+          premiumEnabled: !prices.premiumEnabled } });
+        toast(t('saved'), 'success');
+        padPricesTab(box);
+      } catch (ex) { toast(terr(ex), 'error'); }
+    });
+    document.getElementById('pr-reset').addEventListener('click', async () => {
+      if (!confirm(t('resetConfirm'))) return;
+      if (prompt(t('resetPrompt')) !== 'RESET') return;
+      try {
+        await api('/api/admin/reset', { method: 'POST', body: { confirm: 'RESET' } });
+        toast(t('deleted'), 'success');
+      } catch (ex) { toast(terr(ex), 'error'); }
     });
   }
 
