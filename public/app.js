@@ -183,6 +183,9 @@
     user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20.5c.8-3.8 3.7-6 7.5-6s6.7 2.2 7.5 6"/></svg>',
     scan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10"/></svg>',
     board: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16.5 15.2c2.2.3 3.6 1.8 4 4.3"/></svg>',
+    play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.87l11-6.5a1 1 0 0 0 0-1.74l-11-6.5A1 1 0 0 0 8 5.5Z"/></svg>',
+    stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="3"/></svg>',
+    qr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v.01M14 20h6M17 20v.01"/></svg>',
   };
 
   const state = {
@@ -765,6 +768,14 @@
     const today = todayStr();
     const todayMin = summary.days[today] ? summary.days[today].minutes : 0;
     const e = computeEarnings(summary, jobs);
+    // Bugungi topilgan pul (alohida ko'rsatiladi)
+    let todayNet = 0;
+    const td = summary.days[today];
+    if (td) {
+      const byJob = {};
+      for (const s of td.sessions) { const k = s.jobId || 0; byJob[k] = (byJob[k] || 0) + s.minutes; }
+      for (const [k, mins] of Object.entries(byJob)) todayNet += jobEarn(jobs.find((j) => j.id === +k), mins, 1).net;
+    }
 
     // Har bir ish joyining bu oydagi soatlari va kunlari
     const perJobMin = {}, perJobDays = {};
@@ -805,25 +816,24 @@
         action = '';
       } else if (isActive) {
         action = (isTeam && status.orgCheckMode === 'qr')
-          ? `<button class="wp-btn stop" data-scan="1">${t('scanQrBtn')}</button>`
-          : `<button class="wp-btn stop" data-stop="1">${t('stopBtn')}</button>`;
+          ? `<button class="wp-btn stop" data-scan="1" title="${t('scanQrBtn')}">${ICONS.qr}</button>`
+          : `<button class="wp-btn stop" data-stop="1" title="${t('stopBtn')}">${ICONS.stop}</button>`;
       } else if (!otherActive) {
         action = isTeam
           ? (obj.checkMode === 'qr'
-            ? `<button class="wp-btn start" data-scan="1">${t('scanQrBtn')}</button>`
-            : `<button class="wp-btn start" data-orgstart="${obj.orgId}">${t('startBtn')}</button>`)
-          : `<button class="wp-btn start" data-jobstart="${obj.id}">${t('startBtn')}</button>`;
+            ? `<button class="wp-btn start" data-scan="1" title="${t('scanQrBtn')}">${ICONS.qr}</button>`
+            : `<button class="wp-btn start" data-orgstart="${obj.orgId}" title="${t('startBtn')}">${ICONS.play}</button>`)
+          : `<button class="wp-btn start" data-jobstart="${obj.id}" title="${t('startBtn')}">${ICONS.play}</button>`;
       }
       const rateJob = isTeam ? teamJob : obj;
       const earn = jobEarn(rateJob, mins, (perJobDays[jid] || new Set()).size);
-      const earnTxt = earn.hasRate && earn.net > 0 ? ` · <b style="color:var(--green)">${fmtMoney(earn.net)}</b>` : '';
+      const earnTxt = earn.hasRate && earn.net > 0 ? `<span class="wp-earn">${fmtMoneyShort(earn.net)}</span>` : '';
       return `
       <div class="wp-card ${isActive ? 'active' : ''} ${otherActive ? 'dim' : ''}"
            data-wp="${isTeam ? 'team' : 'job'}" data-wpjob="${jid}" data-wporg="${isTeam ? obj.orgId : ''}">
-        <span class="avatar" style="background:${avatarColor(name)}">${isTeam ? '🍽' : esc(initials(name))}</span>
+        <span class="avatar wp-open" style="background:${avatarColor(name)}">${isTeam ? '🍽' : esc(initials(name))}</span>
         <div class="info wp-open">
-          <div class="name">${esc(name)}${isTeam ? ` <span class="tag-team">${t('teamTag')}</span>` : ''}
-            ${isActive ? `<span class="tag-live"><span class="pulse-dot"></span>${t('activeTag')}</span>` : ''}</div>
+          <div class="name"><span class="nm">${esc(name)}</span>${isTeam ? `<span class="tag-team">${t('teamTag')}</span>` : ''}${isActive ? `<span class="tag-live"><span class="pulse-dot"></span>${t('activeTag')}</span>` : ''}</div>
           <div class="sub">${fmtH(mins)} ${t('hUnit')}${earnTxt}</div>
         </div>
         ${action}
@@ -841,15 +851,16 @@
       ${invitesHtml}
 
       <div class="hero-mini ${status.checkedIn ? 'working' : ''}">
-        <div>
+        <div class="hm-top">
           <div class="hm-label">${status.checkedIn
             ? `${t('atWork')}${status.orgName ? ` · ${esc(status.orgName)}` : ''} · ${status.since}`
             : t('offWork').replace('🌙 ', '')}</div>
           <div class="hm-time" id="status-time">${status.checkedIn ? '' : fmtH(todayMin)}</div>
+          ${e.hasRate ? `<div class="hm-today">${t('todayEarned')}: <b>${fmtMoney(todayNet)}</b></div>` : ''}
         </div>
         <div class="hm-stats">
           <div><b>${fmtH(summary.totalMinutes)}</b><span>${t('monthTotal', MONTHS()[month - 1])}</span></div>
-          ${e.hasRate ? `<div><b>${fmtMoney(e.net)}</b><span>${t('monthNet')}</span></div>` : ''}
+          ${e.hasRate ? `<div><b>${fmtMoneyShort(e.net)}</b><span>${t('monthNet')}</span></div>` : ''}
         </div>
       </div>
 
