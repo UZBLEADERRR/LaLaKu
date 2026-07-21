@@ -675,24 +675,36 @@ table.tabel tfoot td.d-col { background: #cdeede; z-index: 2; }
 [data-theme="mint"] .hero-mini.working { background: linear-gradient(135deg, #1d4ed8, #3b82f6); }
 
 /* ---------- Ish joyi kartalari ---------- */
-.wp-head { display: flex; align-items: center; justify-content: space-between; margin: 4px 4px 12px; }
+.wp-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 4px 12px; }
+.wp-head h2 { font-size: 15px; letter-spacing: -.2px; }
 .wp-card {
   display: flex; align-items: center; gap: 13px;
-  background: var(--card); border-radius: 18px; box-shadow: var(--shadow-sm);
-  padding: 14px 16px; margin-bottom: 10px; border: 2px solid transparent;
-  transition: opacity .2s;
+  background: var(--card); border-radius: 20px; box-shadow: var(--shadow-sm);
+  padding: 14px 15px; margin-bottom: 11px; border: 1.5px solid var(--line);
+  transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .18s, opacity .2s, border-color .2s;
 }
-.wp-card.active { border-color: var(--green); }
-.wp-card.dim { opacity: .45; }
+.wp-card:active { transform: scale(.985); }
+.wp-card.active { border-color: var(--green); box-shadow: 0 8px 26px -12px var(--green); }
+.wp-card.dim { opacity: .5; }
+.wp-card .avatar { flex: 0 0 auto; }
 .wp-card .info { flex: 1; min-width: 0; }
-.wp-card .name { font-weight: 800; font-size: 15.5px; }
-.wp-card .sub { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-top: 2px; }
+.wp-card .name { display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 15.5px; min-width: 0; }
+.wp-card .name .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.wp-card .name .tag-team, .wp-card .name .tag-live { flex: 0 0 auto; }
+.wp-card .sub { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); font-weight: 700; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.wp-card .sub .wp-earn { color: var(--green); font-weight: 800; }
+.wp-card .sub .wp-earn::before { content: '·'; color: var(--muted); margin-right: 8px; font-weight: 700; }
 .wp-btn {
-  padding: 11px 16px; border-radius: 13px; font-weight: 800; font-size: 14px;
-  white-space: nowrap; flex-shrink: 0;
+  flex: 0 0 auto; width: 46px; height: 46px; border-radius: 15px;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: transform .15s, filter .15s;
 }
-.wp-btn.start { background: var(--accent); color: #fff; }
-.wp-btn.stop { background: var(--red); color: #fff; }
+.wp-btn svg { width: 20px; height: 20px; }
+.wp-btn:active { transform: scale(.9); }
+.wp-btn.start { background: linear-gradient(135deg, var(--accent), #7c7cf0); color: #fff; box-shadow: 0 8px 20px -8px var(--accent); }
+.wp-btn.stop { background: linear-gradient(135deg, var(--red), #f0637a); color: #fff; box-shadow: 0 8px 20px -8px var(--red); }
+.hero-mini .hm-today { font-size: 12.5px; font-weight: 700; opacity: .92; margin-top: 8px; }
+.hero-mini .hm-today b { font-weight: 800; }
 [data-theme="kakao"] .wp-card { box-shadow: none; border: 1px solid var(--line); }
 [data-theme="kakao"] .wp-card.active { border: 2px solid var(--green); }
 [data-theme="kakao"] .wp-btn.start { background: #FEE500; color: #3C1E1E; }
@@ -783,8 +795,8 @@ table.tabel tfoot td.d-col { background: #cdeede; z-index: 2; }
 .sal-row .muted { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .fin-row .amt { flex-shrink: 0; }
 
-/* Ish joyi kartasidagi "keldim/ketdim" tugmalari kattaroq */
-.wp-btn { padding: 13px 20px; font-size: 15.5px; min-height: 48px; }
+/* Ish joyi kartasidagi kelish/ketish ikonali tugmalari */
+.wp-btn { min-height: 46px; }
 /* Moliya segment tugmalari kattaroq */
 .segment button { min-height: 44px; }
 /* Sana/vaqt qo'shish tugmalari */
