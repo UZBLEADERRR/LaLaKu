@@ -186,6 +186,8 @@
     play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.87l11-6.5a1 1 0 0 0 0-1.74l-11-6.5A1 1 0 0 0 8 5.5Z"/></svg>',
     stop: '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="3"/></svg>',
     qr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v.01M14 20h6M17 20v.01"/></svg>',
+    cog: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 7 19.4a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 2.6 7a1.6 1.6 0 0 0-.3-1.8l-.1-.1A2 2 0 1 1 5 2.3l.1.1a1.6 1.6 0 0 0 2.7-1.1V1a2 2 0 1 1 4 0v.1A1.6 1.6 0 0 0 17 2.6a1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0 1.1 2.7H23a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1.1Z"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   };
 
   const state = {
@@ -886,13 +888,17 @@
       const started = new Date(status.sinceIso);
       const closedBefore = summary.days[today]
         ? summary.days[today].sessions.filter((x) => x.out).reduce((a, x) => a + x.minutes, 0) : 0;
+      // Klassik "tik-tak" soat — har sekund yangilanadi, soniyalar bilan
       const upd = () => {
-        const mins = Math.max(0, Math.floor((Date.now() - started) / 60_000));
+        const totalSec = closedBefore * 60 + Math.max(0, Math.floor((Date.now() - started) / 1000));
+        const h = Math.floor(totalSec / 3600);
+        const m = Math.floor((totalSec % 3600) / 60);
+        const s = totalSec % 60;
         const el = document.getElementById('status-time');
-        if (el) el.textContent = fmtH(closedBefore + mins);
+        if (el) el.innerHTML = `${h}:${String(m).padStart(2, '0')}<span class="hm-sec">:${String(s).padStart(2, '0')}</span>`;
       };
       upd();
-      state.timerId = setInterval(upd, 15_000);
+      state.timerId = setInterval(upd, 1000);
       startAutoCheckout(status, renderWorker);
     }
 
@@ -1693,11 +1699,14 @@
   }
   // Akkauntlarni almashtirish oynasi (admin panelidan ham chaqiriladi)
   function openAccountsModal() {
+    const hasAdmin = getAccounts().some((a) => a.type === 'padmin');
     const modal = openModal(`
       <div class="modal-head"><h2 style="margin:0">${t('accounts')}</h2><button class="modal-close" id="m-close">✕</button></div>
       ${accountsCardHtml()}
+      ${hasAdmin ? '' : `<button class="btn outline" id="add-admin" style="margin-top:10px">🛡 ${t('adminBtn')}</button>`}
     `);
     modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelector('#add-admin')?.addEventListener('click', () => { closeModal(); renderPadminLogin(); });
     bindAccountsCard();
   }
   function bindAccountsCard() {
@@ -2097,9 +2106,13 @@
       </tfoot>`;
     }
     const tableHtml = data.workers.length
-      ? `<div class="table-wrap"><table class="tabel"><thead><tr><th class="corner">${t('dateLabel')}</th>${workerHead}</tr></thead>
+      ? `<div class="table-tools">
+           ${mode === 'worked' ? `<button class="chip" id="share-link" title="${t('shareLink')}">🔗</button>` : '<span></span>'}
+           <div class="zoom-ctrl"><button class="chip" id="zoom-out">−</button><button class="chip" id="zoom-in">＋</button></div>
+         </div>
+         <div class="table-wrap"><table class="tabel"><thead><tr><th class="corner">${t('dateLabel')}</th>${workerHead}</tr></thead>
           <tbody>${bodyRows}</tbody>${foot}</table></div>
-         <p class="muted" style="margin:10px 4px 14px">${mode === 'schedule' ? t('noSchedule') : t('tableHint')}</p>`
+         <p class="muted" style="margin:10px 4px 14px">${mode === 'schedule' ? t('noSchedule') : t('pinchHint')}</p>`
       : `<div class="card"><p class="muted">${t('noMembers')}</p></div>`;
 
     box.innerHTML = `
@@ -2128,6 +2141,60 @@
     box.querySelectorAll('td.cell').forEach((td) => td.addEventListener('click', () => mode === 'schedule'
       ? openScheduleModal(+td.dataset.worker, td.dataset.name, td.dataset.date, schedMap[`${td.dataset.worker}_${td.dataset.date}`])
       : openOrgDayModal(+td.dataset.worker, td.dataset.name, td.dataset.date)));
+    // Barmoq bilan (pinch) yoki ＋/− bilan jadvalni kattalashtirish/kichraytirish
+    const wrap = box.querySelector('.table-wrap');
+    if (wrap) enablePinchZoom(wrap);
+    document.getElementById('zoom-in')?.addEventListener('click', () => wrap?._zoom(0.15));
+    document.getElementById('zoom-out')?.addEventListener('click', () => wrap?._zoom(-0.15));
+    document.getElementById('share-link')?.addEventListener('click', openShareModal);
+  }
+
+  // Jadvalni barmoq bilan zoom qilish (pinch) + ＋/− tugmalari
+  function enablePinchZoom(wrap) {
+    const table = wrap.querySelector('table.tabel');
+    if (!table) return;
+    let tz = parseFloat(getComputedStyle(table).getPropertyValue('--tz')) || 1;
+    let startDist = 0, startTz = 1;
+    const setTz = (v) => { tz = Math.min(2.4, Math.max(0.65, v)); table.style.setProperty('--tz', tz.toFixed(3)); };
+    const dist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    wrap.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) { startDist = dist(e.touches); startTz = tz; }
+    }, { passive: true });
+    wrap.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2 && startDist) { setTz(startTz * (dist(e.touches) / startDist)); e.preventDefault(); }
+    }, { passive: false });
+    wrap._zoom = (d) => setTz(tz + d);
+  }
+
+  // Jadvalni ommaviy (o'qish uchun) havola orqali ulashish + yangilash/o'chirish
+  async function openShareModal() {
+    let org;
+    try { org = await api('/api/org'); } catch (ex) { return toast(terr(ex), 'error'); }
+    const url = org.shareToken ? `${location.origin}/t/${org.shareToken}` : '';
+    const modal = openModal(`
+      <div class="modal-head"><h2 style="margin:0">${t('shareTitle')}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <p class="muted" style="font-size:13px">${t('shareDesc')}</p>
+      ${url ? `<div class="invite-box" id="share-url">${esc(url)}</div>
+        <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+          <button class="btn outline" id="sh-copy" style="flex:1">${t('inviteCopy')}</button>
+          <button class="chip red" id="sh-rotate" style="padding:12px 16px">${t('inviteRotate')}</button>
+          <button class="chip gray" id="sh-off" style="padding:12px 16px">🚫</button>
+        </div>`
+        : `<button class="btn" id="sh-create" style="margin-top:12px">🔗 ${t('shareCreate')}</button>`}
+    `);
+    modal.querySelector('#m-close').addEventListener('click', closeModal);
+    modal.querySelector('#sh-create')?.addEventListener('click', async () => {
+      try { await api('/api/org/share/rotate', { method: 'POST' }); closeModal(); openShareModal(); } catch (ex) { toast(terr(ex), 'error'); }
+    });
+    modal.querySelector('#sh-copy')?.addEventListener('click', () =>
+      navigator.clipboard.writeText(url).then(() => toast(t('copied'), 'success')));
+    modal.querySelector('#sh-rotate')?.addEventListener('click', async () => {
+      if (!confirm(t('shareRotateConfirm'))) return;
+      try { await api('/api/org/share/rotate', { method: 'POST' }); closeModal(); openShareModal(); } catch (ex) { toast(terr(ex), 'error'); }
+    });
+    modal.querySelector('#sh-off')?.addEventListener('click', async () => {
+      try { await api('/api/org/share', { method: 'DELETE' }); closeModal(); toast(t('deleted'), 'success'); } catch (ex) { toast(terr(ex), 'error'); }
+    });
   }
 
   // To'liq oylik tabel — barcha ishchilar, har kun (soat/dam), jami va maosh
@@ -2658,10 +2725,26 @@
     });
   }
 
+  function showPadminNav(active) {
+    $nav.classList.remove('hidden');
+    const strip = (s) => s.replace(/^[^\p{L}]+/u, '').trim();
+    const items = [
+      ['payments', ICONS.wallet, strip(t('padPayments'))],
+      ['history', ICONS.clock, strip(t('padHistory'))],
+      ['users', ICONS.board, strip(t('padUsers'))],
+      ['prices', ICONS.cog, strip(t('padPrices'))],
+    ];
+    $nav.innerHTML = items.map(([v, ic, label]) =>
+      `<button data-v="${v}" class="${active === v ? 'active' : ''}">${ic}<span>${label}</span></button>`).join('');
+    $nav.querySelectorAll('button').forEach((b) =>
+      b.addEventListener('click', () => { state.padTab = b.dataset.v; renderPadmin(); }));
+  }
+
   async function renderPadmin() {
     stopTimers();
-    hideNav();
-    $app.className = 'wide';
+    $app.className = '';
+    if (!['payments', 'history', 'users', 'prices'].includes(state.padTab)) state.padTab = 'payments';
+    showPadminNav(state.padTab);
     let ov;
     try {
       ov = await api('/api/admin/overview');
@@ -2679,17 +2762,11 @@
           <button class="chip gray" id="logout-btn">${t('logout')}</button>
         </div>
       </div>
-      <div class="stat-row" style="max-width:600px">
+      <div class="stat-row">
         <div class="stat"><div class="value">${ov.total}</div><div class="label">${t('padTotal')}</div></div>
         <div class="stat"><div class="value">${ov.active}</div><div class="label">${t('padActive')}</div></div>
         <div class="stat"><div class="value">${ov.business}</div><div class="label">${t('padBiz')}</div></div>
         <div class="stat"><div class="value" style="color:${ov.pendingPayments ? 'var(--amber)' : 'inherit'}">${ov.pendingPayments}</div><div class="label">${t('padPending')}</div></div>
-      </div>
-      <div class="tabs">
-        <button class="tab ${state.padTab === 'payments' ? 'active' : ''}" data-tab="payments">${t('padPayments')}</button>
-        <button class="tab ${state.padTab === 'history' ? 'active' : ''}" data-tab="history">${t('padHistory')}</button>
-        <button class="tab ${state.padTab === 'users' ? 'active' : ''}" data-tab="users">${t('padUsers')}</button>
-        <button class="tab ${state.padTab === 'prices' ? 'active' : ''}" data-tab="prices">${t('padPrices')}</button>
       </div>
       <div id="tab-content"><div class="loading-screen" style="padding-top:60px"><div class="spinner"></div></div></div>
     `;
@@ -2702,8 +2779,6 @@
       if (getAccounts().length) location.reload();
       else renderAuth();
     });
-    document.querySelectorAll('.tab').forEach((tab) =>
-      tab.addEventListener('click', () => { state.padTab = tab.dataset.tab; renderPadmin(); }));
 
     const box = document.getElementById('tab-content');
     if (state.padTab === 'payments') await padPaymentsTab(box);
