@@ -539,6 +539,19 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 .break-bar { border-color: var(--amber); }
 .break-bar #break-time { color: var(--amber); }
 
+/* Maqsadlar (goals) */
+.goal-row { padding: 12px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.goal-row:last-child { border-bottom: none; }
+.gr-top { display: flex; align-items: center; justify-content: space-between; }
+.gr-title { font-weight: 800; font-size: 14.5px; }
+.gr-pct { font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; }
+.gr-bottom { display: flex; align-items: center; justify-content: space-between; font-size: 12.5px; }
+.gr-bottom .actions { display: flex; gap: 6px; }
+
+/* Kun izohi */
+.note-box { margin-top: 14px; padding-top: 12px; border-top: 1.5px solid var(--line); }
+.note-text { background: var(--amber-soft); color: var(--text); border-radius: 12px; padding: 10px 13px; font-size: 13.5px; font-weight: 600; margin-bottom: 10px; white-space: pre-wrap; }
+
 /* Maosh kuni kartasi */
 .payday-card { display: flex; align-items: center; gap: 13px; cursor: pointer; padding: 16px 18px; }
 .payday-card .pc-ic { font-size: 22px; flex-shrink: 0; }
