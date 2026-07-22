@@ -356,6 +356,7 @@ label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); 
 @media (min-width: 640px) {
   body { background: #e5e8f1; }
   [data-theme="dark"] body, [data-theme="kakaodark"] body { background: #090a11; }
+  [data-theme="midnight"] body { background: #000; }
 }
 
 /* ---------- Skaner ---------- */
@@ -572,6 +573,21 @@ table.tabel tfoot td.d-col { background: #cdeede; z-index: 2; white-space: norma
 .dot-kakao { background: #FEE500; }
 .dot-mint { background: linear-gradient(135deg, #0d9488, #059669); }
 .dot-dark { background: #171a2c; }
+.dot-kakaodark { background: #241a16; }
+.dot-midnight { background: #0d0d0d; border-color: rgba(255,255,255,.18); }
+
+/* Qo'lda urg'u rang tanlash */
+.accent-label { font-size: 13px; font-weight: 700; color: var(--muted); margin: 16px 0 8px; }
+.accent-row { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+.accent-swatch {
+  width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--line);
+  cursor: pointer; position: relative; display: inline-flex; align-items: center;
+  justify-content: center; font-size: 15px; color: var(--muted); background: var(--card);
+  padding: 0; transition: transform .1s;
+}
+.accent-swatch:active { transform: scale(.92); }
+.accent-swatch.active { border-color: var(--text); box-shadow: 0 0 0 3px var(--accent-soft); }
+.accent-custom { overflow: hidden; background: conic-gradient(from 0deg, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); color: #fff; text-shadow: 0 0 3px rgba(0,0,0,.6); }
 
 .loc-box { border-top: 1.5px solid var(--line); margin-top: 14px; padding-top: 12px; }
 
@@ -663,6 +679,51 @@ table.tabel tfoot td.d-col { background: #cdeede; z-index: 2; white-space: norma
 [data-theme="dark"] .bottom-nav { background: rgba(20, 22, 36, .9); }
 [data-theme="dark"] .worker-item, [data-theme="dark"] .board-row { background: var(--card); }
 [data-theme="dark"] .toast { background: #eceef8; color: #12141f; }
+
+/* ---------- Midnight (ChatGPT uslubidagi neytral qora) ---------- */
+:root[data-theme="midnight"] {
+  --bg: #0d0d0d;
+  --card: #1a1a1a;
+  --text: #ececec;
+  --muted: #9a9a9a;
+  --line: #2a2a2a;
+  --accent: #ececec;
+  --accent-2: #b4b4b4;
+  --accent-soft: #262626;
+  --green-soft: #10261f;
+  --red-soft: #2e1618;
+  --amber-soft: #2c2110;
+  --amber: #e0a13a;
+  --green: #3ecf8e;
+  --red: #f26d6d;
+  --shadow: 0 2px 4px rgba(0, 0, 0, .5), 0 12px 32px rgba(0, 0, 0, .55);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4), 0 4px 14px rgba(0, 0, 0, .4);
+}
+[data-theme="midnight"] .cal-cell { background: #242424; }
+[data-theme="midnight"] .cal-cell.worked { background: var(--green-soft); }
+[data-theme="midnight"] .cal-cell.open-day { background: var(--amber-soft); }
+[data-theme="midnight"] .chip.gray, [data-theme="midnight"] .segment, [data-theme="midnight"] .modal-close { background: #262626; color: var(--muted); }
+[data-theme="midnight"] .segment button.active { background: #363636; color: var(--text); }
+[data-theme="midnight"] .theme-chip { background: #262626; }
+[data-theme="midnight"] input, [data-theme="midnight"] select { background: #212121; border-color: #363636; }
+[data-theme="midnight"] table.summary th, [data-theme="midnight"] table.summary th.name-col { background: #212121; }
+[data-theme="midnight"] table.summary td.day-cell { color: #555; }
+[data-theme="midnight"] table.summary tbody tr:hover td { background-color: #212121; }
+[data-theme="midnight"] table.summary th.wknd { background: #2e1a24; color: #f472b6; }
+[data-theme="midnight"] .bottom-nav { background: rgba(20, 20, 20, .92); }
+[data-theme="midnight"] .worker-item, [data-theme="midnight"] .board-row, [data-theme="midnight"] .table-wrap { background: var(--card); }
+[data-theme="midnight"] .mm-day.rest { background: rgba(255,255,255,.05); }
+[data-theme="midnight"] .icon-btn { background: rgba(255,255,255,.06); }
+[data-theme="midnight"] table.tabel thead th, [data-theme="midnight"] table.tabel th.corner { background: #212121; }
+[data-theme="midnight"] table.tabel td.d-col, [data-theme="midnight"] table.tabel tfoot td.d-col { background: var(--card); }
+[data-theme="midnight"] table.tabel tr.sat td { background: #1c2130; }
+[data-theme="midnight"] table.tabel tr.sun td { background: #2a1820; }
+[data-theme="midnight"] table.tabel td.cell { color: #5a5a5a; }
+[data-theme="midnight"] table.tabel tfoot td { background: var(--green-soft); color: var(--green); border-top-color: var(--green); }
+[data-theme="midnight"] .toast { background: #ececec; color: #0d0d0d; }
+/* Midnight temada asosiy tugma neytral oq (matn qora) — ChatGPT uslubi */
+[data-theme="midnight"] .btn.primary { background: #ececec; color: #0d0d0d; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+[data-theme="midnight"] .hero-mini { background: linear-gradient(135deg, #2a2a2a, #1a1a1a); border: 1px solid #333; }
 
 /* ---------- Ixcham bosh panel ---------- */
 .hero-mini {
