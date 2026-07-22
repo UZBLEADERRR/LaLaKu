@@ -1561,6 +1561,27 @@
       listHtml = list.map(finRowHtml).join('');
     }
 
+    // Moliyaviy grafik uchun qiymatlar
+    const totalIncome = e.net + incomes;
+    const totalOut = expenses + debtsMonth;
+    const chartMax = Math.max(totalIncome, totalOut, Math.abs(leftOver), 1);
+    const barPct = (v) => `${Math.round((Math.max(0, v) / chartMax) * 100)}%`;
+    const finChart = (totalIncome || totalOut) ? `
+      <div class="card fin-chart">
+        <div class="fbar-row">
+          <div class="fbl"><span>${t('kindIncome')}</span><b style="color:var(--green)">${fmtMoneyShort(totalIncome)}</b></div>
+          <div class="fbar"><span class="fbar-fill inc" style="width:${barPct(totalIncome)}"></span></div>
+        </div>
+        <div class="fbar-row">
+          <div class="fbl"><span>${t('kindExpense')}</span><b style="color:var(--red)">${fmtMoneyShort(totalOut)}</b></div>
+          <div class="fbar"><span class="fbar-fill exp" style="width:${barPct(totalOut)}"></span></div>
+        </div>
+        <div class="fbar-row">
+          <div class="fbl"><span>${t('leftOver')}</span><b style="color:${leftOver >= 0 ? 'var(--accent)' : 'var(--red)'}">${fmtMoneyShort(leftOver)}</b></div>
+          <div class="fbar"><span class="fbar-fill rem" style="width:${barPct(leftOver)}"></span></div>
+        </div>
+      </div>` : '';
+
     $app.innerHTML = `
       <div class="topbar">
         ${brandHtml(state.me.name)}
@@ -1569,6 +1590,8 @@
           <button class="chip gray" id="forecast-btn">🔮</button>
         </div>
       </div>
+
+      ${finChart}
 
       <div class="card remain-card">
         <div class="sal-row"><span class="muted">${t('monthEarn')}</span><b>${fmtMoney(e.net)}</b></div>

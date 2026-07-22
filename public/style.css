@@ -151,7 +151,18 @@ label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); 
 .pay-preview img { max-width: 100%; max-height: 240px; border-radius: 12px; border: 1.5px solid var(--line); }
 
 /* ---------- Moliya ---------- */
-.remain-card { border: 2px solid var(--green); }
+.remain-card { border: 1px solid var(--line); }
+/* Moliya bar grafigi */
+.fin-chart { display: flex; flex-direction: column; gap: 14px; }
+.fbar-row { display: flex; flex-direction: column; gap: 7px; }
+.fbl { display: flex; align-items: center; justify-content: space-between; font-size: 13px; font-weight: 700; }
+.fbl span { color: var(--muted); }
+.fbl b { font-variant-numeric: tabular-nums; }
+.fbar { height: 10px; border-radius: 6px; background: var(--accent-soft); overflow: hidden; }
+.fbar-fill { display: block; height: 100%; border-radius: 6px; transition: width .5s cubic-bezier(.2, .8, .2, 1); }
+.fbar-fill.inc { background: var(--green); }
+.fbar-fill.exp { background: var(--red); }
+.fbar-fill.rem { background: var(--accent); }
 .fin-row {
   display: flex; align-items: center; gap: 10px;
   padding: 11px 0; border-bottom: 1px solid var(--line);
