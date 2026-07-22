@@ -318,16 +318,40 @@ label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); 
   min-width: 0; overflow: hidden;
 }
 .cal-cell.empty { background: transparent; cursor: default; }
-.cal-cell.worked { background: var(--green-soft); }
-.cal-cell.open-day { background: var(--amber-soft); }
+/* GitHub uslubidagi issiqlik xaritasi — accent tusining zichligi */
+.cal-cell.lvl1 { background: color-mix(in srgb, var(--accent) 20%, var(--card)); }
+.cal-cell.lvl2 { background: color-mix(in srgb, var(--accent) 52%, var(--card)); }
+.cal-cell.lvl3 { background: var(--accent); }
+.cal-cell.open-day { box-shadow: inset 0 0 0 2px var(--amber); }
 .cal-cell.today { border-color: var(--accent); }
 .cal-cell.selected { border-color: var(--text); }
 .cal-cell .d { font-size: clamp(10px, 3vw, 12px); font-weight: 800; color: var(--muted); }
-.cal-cell.worked .d { color: var(--green); }
-.cal-cell.open-day .d { color: var(--amber); }
+.cal-cell.lvl1 .d, .cal-cell.lvl1 .h { color: var(--accent); }
+.cal-cell.lvl2 .d, .cal-cell.lvl2 .h, .cal-cell.lvl3 .d, .cal-cell.lvl3 .h { color: #fff; }
 .cal-cell .h { font-size: clamp(9px, 2.7vw, 11.5px); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.cal-cell.worked .h { color: var(--green); }
-.cal-cell.open-day .h { color: var(--amber); }
+.cal-legend { display: flex; align-items: center; justify-content: flex-end; gap: 5px; margin-top: 14px; font-size: 11px; font-weight: 700; color: var(--muted); }
+.cal-legend .lg { width: 13px; height: 13px; border-radius: 4px; }
+.cal-legend .lg0 { background: var(--card); border: 1px solid var(--line); }
+.cal-legend .lg1 { background: color-mix(in srgb, var(--accent) 20%, var(--card)); }
+.cal-legend .lg2 { background: color-mix(in srgb, var(--accent) 52%, var(--card)); }
+.cal-legend .lg3 { background: var(--accent); }
+
+/* Bottom sheet */
+.sheet-back { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, .5); display: flex; align-items: flex-end; justify-content: center; opacity: 0; transition: opacity .2s; }
+.sheet-back.open { opacity: 1; }
+.sheet {
+  width: 100%; max-width: 480px; background: var(--card);
+  border-radius: 24px 24px 0 0; padding: 10px 20px calc(24px + env(safe-area-inset-bottom));
+  box-shadow: 0 -8px 30px rgba(0, 0, 0, .22); transform: translateY(100%);
+  transition: transform .26s cubic-bezier(.2, .8, .2, 1); max-height: 82vh; overflow-y: auto;
+}
+.sheet-back.open .sheet { transform: translateY(0); }
+.sheet-grip { width: 40px; height: 4px; border-radius: 3px; background: var(--line); margin: 0 auto 14px; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.sheet-title { font-size: 18px; font-weight: 800; }
+.sheet-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+.sheet-stats .dstat { padding: 14px 16px; }
+.sheet-stats .dstat .dv { font-size: 22px; }
 
 .day-detail { margin-top: 16px; border-top: 1.5px solid var(--line); padding-top: 14px; }
 

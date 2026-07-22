@@ -485,6 +485,20 @@
   }
   function closeModal() { document.getElementById('modal-back')?.remove(); }
 
+  // Pastdan chiquvchi panel (bottom sheet)
+  function openSheet(html) {
+    closeSheet();
+    const back = document.createElement('div');
+    back.className = 'sheet-back';
+    back.id = 'sheet-back';
+    back.innerHTML = `<div class="sheet"><div class="sheet-grip"></div>${html}</div>`;
+    back.addEventListener('click', (e) => { if (e.target === back) closeSheet(); });
+    document.body.appendChild(back);
+    requestAnimationFrame(() => back.classList.add('open'));
+    return back.querySelector('.sheet');
+  }
+  function closeSheet() { document.getElementById('sheet-back')?.remove(); }
+
   // ---------- QR skaner ----------
   const scanner = {
     el: document.getElementById('scanner'),
@@ -772,6 +786,7 @@
   // ================================================================
   function renderWorker() {
     stopTimers();
+    closeSheet();
     $app.className = '';
     showNav(state.view);
     if (state.view === 'calendar') return renderMyCalendar();
@@ -1209,7 +1224,6 @@
 
       <div class="card">
         ${calendarHtml(summary, year, month)}
-        <div class="day-detail ${state.selectedDay ? '' : 'hidden'}" id="day-detail"></div>
       </div>
 
       ${yearCells.length ? `
@@ -1228,18 +1242,10 @@
     document.getElementById('wp-edit').addEventListener('click', () => job && openJobModal(job));
     bindCalendarNav(renderWorker);
 
-    const showDetail = () => {
-      const det = document.getElementById('day-detail');
-      if (!state.selectedDay) { det.classList.add('hidden'); return; }
-      det.innerHTML = dayDetailHtml(summary, state.selectedDay);
-      det.classList.remove('hidden');
-      bindDayDetail(det, summary, jobs, state.selectedDay);
-    };
-    showDetail();
     bindCalendarCells((date) => {
-      state.selectedDay = state.selectedDay === date ? null : date;
-      showDetail();
-      document.querySelectorAll('.cal-cell').forEach((c) => c.classList.toggle('selected', c.dataset.date === state.selectedDay));
+      state.selectedDay = date;
+      document.querySelectorAll('.cal-cell').forEach((c) => c.classList.toggle('selected', c.dataset.date === date));
+      openDaySheet(summary, jobs, date);
     });
 
     document.getElementById('wp-move')?.addEventListener('click', async () => {
@@ -1291,7 +1297,6 @@
       </div>
       <div class="card">
         ${calendarHtml(summary, year, month)}
-        <div class="day-detail ${state.selectedDay ? '' : 'hidden'}" id="day-detail"></div>
       </div>
       <button class="btn outline" id="copy-report">${t('copyReport')}</button>
     `;
@@ -1300,19 +1305,10 @@
     document.querySelectorAll('[data-caljob]').forEach((c) =>
       c.addEventListener('click', () => { state.calJob = +c.dataset.caljob; renderWorker(); }));
 
-    const showDetail = () => {
-      const det = document.getElementById('day-detail');
-      if (!state.selectedDay) { det.classList.add('hidden'); return; }
-      det.innerHTML = dayDetailHtml(summary, state.selectedDay);
-      det.classList.remove('hidden');
-      bindDayDetail(det, summary, jobs, state.selectedDay);
-    };
-    showDetail();
-
     bindCalendarCells((date) => {
-      state.selectedDay = state.selectedDay === date ? null : date;
-      showDetail();
-      document.querySelectorAll('.cal-cell').forEach((c) => c.classList.toggle('selected', c.dataset.date === state.selectedDay));
+      state.selectedDay = date;
+      document.querySelectorAll('.cal-cell').forEach((c) => c.classList.toggle('selected', c.dataset.date === date));
+      openDaySheet(summary, jobs, date);
     });
 
     // SMS uchun ro'yxat nusxalash
@@ -1329,17 +1325,6 @@
         .then(() => toast(t('copied'), 'success'))
         .catch(() => toast(t('genericError'), 'error'));
     });
-  }
-
-  // Kun tafsilotidagi shaxsiy yozuvlarni tahrirlash
-  function bindDayDetail(det, summary, jobs, date) {
-    const dd = summary.days[date];
-    det.querySelectorAll('.s-edit').forEach((b) =>
-      b.addEventListener('click', () => {
-        const sess = dd.sessions.find((x) => String(x.id) === b.closest('[data-sess]').dataset.sess);
-        openMyEntryModal(date, sess, jobs);
-      }));
-    det.querySelector('#day-add')?.addEventListener('click', () => openMyEntryModal(date, null, jobs));
   }
 
   function openMyEntryModal(date, sess, jobs) {
@@ -1402,13 +1387,15 @@
       const date = `${year}-${pad(month)}-${pad(d)}`;
       const dd = summary.days[date];
       const cls = ['cal-cell'];
+      // GitHub uslubidagi issiqlik xaritasi — soatga qarab 3 daraja
+      const mins = dd ? dd.minutes : 0;
+      if (mins > 0) cls.push(mins <= 240 ? 'lvl1' : mins <= 480 ? 'lvl2' : 'lvl3');
       if (dd?.open) cls.push('open-day');
-      else if (dd && dd.minutes > 0) cls.push('worked');
       if (date === today) cls.push('today');
       if (date === state.selectedDay) cls.push('selected');
       cells += `<div class="${cls.join(' ')}" data-date="${date}">
         <div class="d">${d}</div>
-        <div class="h">${dd && dd.minutes > 0 ? fmtH(dd.minutes) : ''}</div>
+        <div class="h">${mins > 0 ? fmtH(mins) : ''}</div>
       </div>`;
     }
     return `
@@ -1416,26 +1403,58 @@
         <div class="cal-title">${calTitle(year, month)}</div>
         <div class="cal-nav"><button id="cal-prev">‹</button><button id="cal-next">›</button></div>
       </div>
-      <div class="cal-grid">${cells}</div>`;
+      <div class="cal-grid">${cells}</div>
+      <div class="cal-legend">
+        <span>${t('legendLess')}</span>
+        <span class="lg lg0"></span><span class="lg lg1"></span><span class="lg lg2"></span><span class="lg lg3"></span>
+        <span>${t('legendMore')}</span>
+      </div>`;
   }
 
-  function dayDetailHtml(summary, date) {
+  // Kunlik sof daromad (tanlangan kun uchun)
+  function dayNet(summary, jobs, date) {
+    const dd = summary.days[date];
+    if (!dd) return { net: 0, hasRate: false };
+    const byJob = {};
+    for (const s of dd.sessions) { const k = s.jobId || 0; byJob[k] = (byJob[k] || 0) + s.minutes; }
+    let net = 0, hasRate = false;
+    for (const [k, mins] of Object.entries(byJob)) {
+      const e = jobEarn(jobs.find((x) => x.id === +k), mins, 1);
+      if (e.hasRate) { hasRate = true; net += e.net; }
+    }
+    return { net, hasRate };
+  }
+
+  // Kun tafsiloti — bottom sheet ichida (Ishlangan / Maosh / yozuvlar)
+  function openDaySheet(summary, jobs, date) {
     const dd = summary.days[date] || { sessions: [], minutes: 0, open: false };
-    const header = `<div class="modal-head" style="margin-bottom:4px">
-      <b>${dayTitle(date)} — <span style="color:var(--green)">${fmtH(dd.minutes)}</span> ${t('hUnit')}${dd.open ? ` <span style="color:var(--amber)">(${t('ongoing')})</span>` : ''}</b>
-      <button class="chip" id="day-add">＋</button>
-    </div>`;
-    if (!dd.sessions.length) return header + `<p class="muted">${t('noRecords')}</p>`;
+    const dn = dayNet(summary, jobs, date);
     const hasOrg = dd.sessions.some((x) => x.orgId);
-    return header + dd.sessions.map((x) => `
-      <div class="session-row" data-sess="${x.id}">
-        <span class="times">${x.in} → ${x.out || `<span style="color:var(--green)">${t('working')}</span>`}</span>
-        <span style="display:flex;align-items:center;gap:8px">
-          <span class="dur">${fmtH(x.minutes)} ${t('hUnit')}</span>
-          ${x.orgId ? '<span title="🔒">🔒</span>' : '<button class="chip gray s-edit" style="padding:5px 9px">✏️</button>'}
-        </span>
-      </div>`).join('') +
-      (hasOrg ? `<p class="muted" style="margin-top:8px;font-size:12.5px">${t('teamLocked')}</p>` : '');
+    const sheet = openSheet(`
+      <div class="sheet-head">
+        <div class="sheet-title">${dayTitle(date)}${dd.open ? ` <span style="color:var(--amber);font-size:13px">(${t('ongoing')})</span>` : ''}</div>
+        <button class="chip" id="day-add">＋</button>
+      </div>
+      <div class="sheet-stats">
+        <div class="dstat"><span class="dl">${t('workedTodayLabel')}</span><span class="dv" style="color:var(--green)">${fmtH(dd.minutes)}</span></div>
+        ${dn.hasRate ? `<div class="dstat"><span class="dl">${t('salary')}</span><span class="dv accent">${fmtMoney(dn.net)}</span></div>` : ''}
+      </div>
+      ${dd.sessions.length ? dd.sessions.map((x) => `
+        <div class="session-row" data-sess="${x.id}">
+          <span class="times">${x.in} → ${x.out || `<span style="color:var(--green)">${t('working')}</span>`}</span>
+          <span style="display:flex;align-items:center;gap:8px">
+            <span class="dur">${fmtH(x.minutes)} ${t('hUnit')}</span>
+            ${x.orgId ? '<span title="🔒">🔒</span>' : '<button class="chip gray s-edit" style="padding:5px 9px">✏️</button>'}
+          </span>
+        </div>`).join('') : `<p class="muted">${t('noRecords')}</p>`}
+      ${hasOrg ? `<p class="muted" style="margin-top:8px;font-size:12.5px">${t('teamLocked')}</p>` : ''}
+    `);
+    sheet.querySelectorAll('.s-edit').forEach((b) =>
+      b.addEventListener('click', () => {
+        const sess = dd.sessions.find((x) => String(x.id) === b.closest('[data-sess]').dataset.sess);
+        openMyEntryModal(date, sess, jobs);
+      }));
+    sheet.querySelector('#day-add')?.addEventListener('click', () => openMyEntryModal(date, null, jobs));
   }
 
   function bindCalendarNav(rerender) {
