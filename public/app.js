@@ -1823,11 +1823,65 @@
   }
 
   // ---------- Prognoz ----------
+  // Ikki oraliq kesishmasi (daqiqa)
+  function rangeOverlap(a1, a2, b1, b2) { return Math.max(0, Math.min(a2, b2) - Math.max(a1, b1)); }
+  // Tungi soatlar (22:00–06:00) — smenaning shu oynaga tushgan qismi (daqiqa)
+  function nightMinutes(inT, outT) {
+    if (!inT || !outT) return 0;
+    const toM = (s) => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
+    let a = toM(inT), b = toM(outT); if (b <= a) b += 1440;
+    const ranges = [[0, 360], [1320, 1440], [1440, 1440 + 360], [1320 + 1440, 2880]];
+    return ranges.reduce((n, [r1, r2]) => n + rangeOverlap(a, b, r1, r2), 0);
+  }
+
   async function renderForecast() {
-    let items = [], jobs = [];
-    try { [items, jobs] = await Promise.all([api('/api/finance'), api('/api/jobs')]); } catch {}
+    const now = new Date();
+    const year = now.getFullYear(), month = now.getMonth() + 1;
+    let items = [], jobs = [], summary = { days: {}, totalMinutes: 0, daysWorked: 0 };
+    try { [items, jobs, summary] = await Promise.all([api('/api/finance'), api('/api/jobs'), api(`/api/my/summary?year=${year}&month=${month}`)]); } catch {}
     const expenses = items.filter((i) => i.active && i.kind === 'expense').reduce((a, i) => a + (i.amount - (i.paidAmount || 0)), 0);
     const me = state.me;
+
+    // ---- Avtomatik statistika (haqiqiy ma'lumotdan) ----
+    const workedDays = summary.daysWorked || 0;
+    const totalMin = summary.totalMinutes || 0;
+    const st = computeEarnings(summary, jobs);
+    const netSoFar = st.net || 0;
+    const daysElapsed = now.getDate();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const avgDayMin = workedDays ? totalMin / workedDays : 0;
+    const avgWeekMin = daysElapsed ? (totalMin / daysElapsed) * 7 : 0;
+    const avgSalaryDay = workedDays ? netSoFar / workedDays : 0;
+    const predictedNet = daysElapsed ? (netSoFar / daysElapsed) * daysInMonth : 0;
+    // Overtime: kuniga 8 soatdan ortig'i — qo'shimcha; tungi soatlar alohida
+    let normalMin = 0, otMin = 0, nightMin = 0;
+    for (const d of Object.values(summary.days)) {
+      normalMin += Math.min(d.minutes, 480);
+      otMin += Math.max(d.minutes - 480, 0);
+      for (const s of d.sessions) nightMin += nightMinutes(s.in, s.out);
+    }
+    const statsCards = workedDays ? `
+      <div class="card">
+        <h2>📊 ${t('statsTitle')}</h2>
+        <div class="dash-stats" style="margin:0">
+          <div class="dstat"><span class="dl">${t('avgPerDay')}</span><span class="dv">${fmtH(Math.round(avgDayMin))}</span></div>
+          <div class="dstat"><span class="dl">${t('avgPerWeek')}</span><span class="dv">${fmtH(Math.round(avgWeekMin))}</span></div>
+          ${st.hasRate ? `<div class="dstat wide"><span class="dl">${t('avgSalaryDay')}</span><span class="dv accent">${fmtMoney(avgSalaryDay)}</span></div>` : ''}
+        </div>
+      </div>
+      ${st.hasRate ? `
+      <div class="card" style="border:1px solid var(--accent)">
+        <div class="sal-row"><span class="muted">${t('expectedSalary')}</span><b style="color:var(--accent);font-size:20px">${fmtMoney(predictedNet)}</b></div>
+        <p class="muted" style="margin:6px 0 0;font-size:12px">${t('predictionNote', daysElapsed, daysInMonth)}</p>
+      </div>` : ''}
+      <div class="card">
+        <h2>⏱ ${t('overtimeTitle')}</h2>
+        <div class="dash-stats" style="margin:0;grid-template-columns:1fr 1fr 1fr">
+          <div class="dstat" style="padding:14px"><span class="dl">${t('otNormal')}</span><span class="dv" style="font-size:20px">${fmtH(normalMin)}</span></div>
+          <div class="dstat" style="padding:14px"><span class="dl">${t('otOvertime')}</span><span class="dv" style="font-size:20px;color:var(--amber)">${fmtH(otMin)}</span></div>
+          <div class="dstat" style="padding:14px"><span class="dl">${t('otNight')}</span><span class="dv" style="font-size:20px;color:var(--accent)">${fmtH(nightMin)}</span></div>
+        </div>
+      </div>` : '';
     // Stavkani real ish joyidan olamiz (bo'lmasa profil)
     const rj = jobs.find((j) => j.payType !== 'daily' && j.rate > 0);
     const dj = jobs.find((j) => j.payType === 'daily' && j.rate > 0);
@@ -1836,9 +1890,10 @@
 
     $app.innerHTML = `
       <div class="topbar">
-        ${brandHtml(t('forecast').replace('🔮 ', ''))}
+        ${brandHtml(t('statsTitle'))}
         <button class="chip gray" id="back-btn">${t('back')}</button>
       </div>
+      ${statsCards}
       <div class="card">
         <h2>${t('forecast')}</h2>
         <p class="muted">${t('forecastNote')}</p>
