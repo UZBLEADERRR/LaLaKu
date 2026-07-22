@@ -173,6 +173,20 @@ async function initDb() {
     ALTER TABLE orgs ADD COLUMN IF NOT EXISTS allowed_ip TEXT;
     ALTER TABLE orgs ADD COLUMN IF NOT EXISTS auto_checkout BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE orgs ADD COLUMN IF NOT EXISTS share_token TEXT;
+    CREATE TABLE IF NOT EXISTS goals (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      target NUMERIC NOT NULL,
+      saved NUMERIC NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS day_notes (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      note_date DATE NOT NULL,
+      text TEXT NOT NULL,
+      PRIMARY KEY (user_id, note_date)
+    );
   `);
 
   // Mavjud jamoa a'zoliklari uchun bog'langan ish joyi yozuvlari
@@ -1052,6 +1066,72 @@ app.post('/api/finance/:id/pay', requireUser, wrap(async (req, res) => {
 app.delete('/api/finance/:id', requireUser, wrap(async (req, res) => {
   await pool.query(`DELETE FROM finance_items WHERE id = $1 AND user_id = $2`,
     [parseInt(req.params.id, 10), req.user.id]);
+  res.json({ ok: true });
+}));
+
+// ================= MAQSADLAR (goals) =================
+app.get('/api/goals', requireUser, wrap(async (req, res) => {
+  const r = await pool.query(
+    `SELECT id, title, target::float, saved::float FROM goals WHERE user_id = $1 ORDER BY id`, [req.user.id]);
+  res.json(r.rows);
+}));
+
+app.post('/api/goals', requireUser, wrap(async (req, res) => {
+  const title = String(req.body?.title || '').trim().slice(0, 80);
+  const target = Number(req.body?.target);
+  if (!title || !(target > 0)) return fail(res, 400, "Ma'lumot noto'g'ri", 'BAD_INPUT');
+  const r = await pool.query(
+    `INSERT INTO goals (user_id, title, target) VALUES ($1, $2, $3) RETURNING id`,
+    [req.user.id, title, target]);
+  res.json({ ok: true, id: r.rows[0].id });
+}));
+
+app.put('/api/goals/:id', requireUser, wrap(async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const own = (await pool.query(`SELECT saved::float FROM goals WHERE id = $1 AND user_id = $2`, [id, req.user.id])).rows[0];
+  if (!own) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
+  if (req.body?.add !== undefined) {
+    const add = Number(req.body.add);
+    if (!isFinite(add)) return fail(res, 400, "Ma'lumot noto'g'ri", 'BAD_INPUT');
+    await pool.query(`UPDATE goals SET saved = GREATEST(saved + $1, 0) WHERE id = $2`, [add, id]);
+    return res.json({ ok: true });
+  }
+  const title = String(req.body?.title || '').trim().slice(0, 80);
+  const target = Number(req.body?.target);
+  if (!title || !(target > 0)) return fail(res, 400, "Ma'lumot noto'g'ri", 'BAD_INPUT');
+  await pool.query(`UPDATE goals SET title = $1, target = $2 WHERE id = $3`, [title, target, id]);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/goals/:id', requireUser, wrap(async (req, res) => {
+  await pool.query(`DELETE FROM goals WHERE id = $1 AND user_id = $2`, [parseInt(req.params.id, 10), req.user.id]);
+  res.json({ ok: true });
+}));
+
+// ================= KUN IZOHLARI (notes) =================
+app.get('/api/my/notes', requireUser, wrap(async (req, res) => {
+  const year = parseInt(req.query.year, 10), month = parseInt(req.query.month, 10);
+  if (!year || !month) return fail(res, 400, "Sana noto'g'ri", 'BAD_DATE');
+  const r = await pool.query(
+    `SELECT to_char(note_date, 'YYYY-MM-DD') AS date, text FROM day_notes
+     WHERE user_id = $1 AND note_date >= make_date($2, $3, 1)
+       AND note_date < make_date($2, $3, 1) + INTERVAL '1 month'`,
+    [req.user.id, year, month]);
+  res.json(r.rows);
+}));
+
+app.put('/api/my/notes/:date', requireUser, wrap(async (req, res) => {
+  const date = String(req.params.date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(res, 400, "Sana noto'g'ri", 'BAD_DATE');
+  const text = String(req.body?.text || '').trim().slice(0, 500);
+  if (!text) {
+    await pool.query(`DELETE FROM day_notes WHERE user_id = $1 AND note_date = $2`, [req.user.id, date]);
+    return res.json({ ok: true, deleted: true });
+  }
+  await pool.query(
+    `INSERT INTO day_notes (user_id, note_date, text) VALUES ($1, $2, $3)
+     ON CONFLICT (user_id, note_date) DO UPDATE SET text = EXCLUDED.text`,
+    [req.user.id, date, text]);
   res.json({ ok: true });
 }));
 

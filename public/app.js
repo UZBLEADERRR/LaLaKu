@@ -274,7 +274,7 @@
   }
 
   // ---------- API (stale-while-revalidate: keshdan darhol, fonда yangilaydi) ----------
-  const CACHEABLE = ['/api/me', '/api/my/summary', '/api/jobs', '/api/finance', '/api/my/status', '/api/my/year', '/api/my/schedule'];
+  const CACHEABLE = ['/api/me', '/api/my/summary', '/api/jobs', '/api/finance', '/api/my/status', '/api/my/year', '/api/my/schedule', '/api/goals', '/api/my/notes'];
   const cacheKey = (url) => `lalaku_c_${activeAccount()?.id || 0}_${url}`;
   // Kesh "avlodi": mutatsiya bo'lganda oshadi. Fondagi eski so'rov
   // tugagach, avlod o'zgargan bo'lsa keshga YOZMAYDI (eski ma'lumot qaytmaydi).
@@ -1350,17 +1350,20 @@
 
   async function renderMyCalendar() {
     const { year, month } = currentMonth();
-    let fullSummary, jobs;
+    let fullSummary, jobs, noteRows = [];
     try {
-      [fullSummary, jobs] = await Promise.all([
+      [fullSummary, jobs, noteRows] = await Promise.all([
         api(`/api/my/summary?year=${year}&month=${month}`),
         api('/api/jobs'),
+        api(`/api/my/notes?year=${year}&month=${month}`),
       ]);
     } catch (ex) {
       if (ex.code === 'AUTH') return renderAuth();
       toast(terr(ex), 'error');
       return;
     }
+    const notes = {};
+    for (const n of noteRows) notes[n.date] = n.text;
     if (!jobs.some((j) => j.id === state.calJob)) state.calJob = 0;
     const summary = filterSummary(fullSummary, state.calJob);
     const jobChips = jobs.length ? `
@@ -1395,7 +1398,7 @@
     bindCalendarCells((date) => {
       state.selectedDay = date;
       document.querySelectorAll('.cal-cell').forEach((c) => c.classList.toggle('selected', c.dataset.date === date));
-      openDaySheet(summary, jobs, date);
+      openDaySheet(summary, jobs, date, notes);
     });
 
     // SMS uchun ro'yxat nusxalash
@@ -1519,11 +1522,12 @@
     return { net, hasRate };
   }
 
-  // Kun tafsiloti — bottom sheet ichida (Ishlangan / Maosh / yozuvlar)
-  function openDaySheet(summary, jobs, date) {
+  // Kun tafsiloti — bottom sheet ichida (Ishlangan / Maosh / yozuvlar / izoh)
+  function openDaySheet(summary, jobs, date, notes) {
     const dd = summary.days[date] || { sessions: [], minutes: 0, open: false };
     const dn = dayNet(summary, jobs, date);
     const hasOrg = dd.sessions.some((x) => x.orgId);
+    const note = notes ? notes[date] : null;
     const sheet = openSheet(`
       <div class="sheet-head">
         <div class="sheet-title">${dayTitle(date)}${dd.open ? ` <span style="color:var(--amber);font-size:13px">(${t('ongoing')})</span>` : ''}</div>
@@ -1542,6 +1546,10 @@
           </span>
         </div>`).join('') : `<p class="muted">${t('noRecords')}</p>`}
       ${hasOrg ? `<p class="muted" style="margin-top:8px;font-size:12.5px">${t('teamLocked')}</p>` : ''}
+      ${notes ? `<div class="note-box">
+        ${note ? `<p class="note-text">📝 ${esc(note)}</p>` : ''}
+        <button class="chip gray" id="note-edit">${note ? `✏️ ${t('editNote')}` : `📝 ${t('addNote')}`}</button>
+      </div>` : ''}
     `);
     sheet.querySelectorAll('.s-edit').forEach((b) =>
       b.addEventListener('click', () => {
@@ -1549,6 +1557,15 @@
         openMyEntryModal(date, sess, jobs);
       }));
     sheet.querySelector('#day-add')?.addEventListener('click', () => openMyEntryModal(date, null, jobs));
+    sheet.querySelector('#note-edit')?.addEventListener('click', async () => {
+      const v = prompt(t('notePrompt'), note || '');
+      if (v === null) return;
+      try {
+        await api(`/api/my/notes/${date}`, { method: 'PUT', body: { text: v } });
+        if (v.trim()) notes[date] = v.trim(); else delete notes[date];
+        openDaySheet(summary, jobs, date, notes);
+      } catch (ex) { toast(terr(ex), 'error'); }
+    });
   }
 
   function bindCalendarNav(rerender) {
@@ -1583,12 +1600,13 @@
   async function renderFinance() {
     const now = new Date();
     const year = now.getFullYear(), month = now.getMonth() + 1;
-    let items, summary, jobs;
+    let items, summary, jobs, goals = [];
     try {
-      [items, summary, jobs] = await Promise.all([
+      [items, summary, jobs, goals] = await Promise.all([
         api('/api/finance'),
         api(`/api/my/summary?year=${year}&month=${month}`),
         api('/api/jobs'),
+        api('/api/goals'),
       ]);
     } catch (ex) {
       if (ex.code === 'AUTH') return renderAuth();
@@ -1700,6 +1718,28 @@
           <span class="ma">${(+localStorage.getItem(paydayKey()) || 0) ? t('everyMonthShort', +localStorage.getItem(paydayKey())) + ' ›' : t('paydaySet') + ' ›'}</span></button>
       </div>
 
+      <div class="card">
+        <div class="modal-head" style="margin-bottom:10px"><h2 style="margin:0">🎯 ${t('goalsTitle')}</h2><button class="chip" id="goal-add">＋</button></div>
+        ${goals.length ? goals.map((g) => {
+          const pct = Math.min(100, Math.round((g.saved / g.target) * 100));
+          return `<div class="goal-row" data-goal="${g.id}">
+            <div class="gr-top">
+              <span class="gr-title">${esc(g.title)}</span>
+              <span class="gr-pct" style="color:${pct >= 100 ? 'var(--green)' : 'var(--accent)'}">${pct}%</span>
+            </div>
+            <div class="fbar"><span class="fbar-fill rem" style="width:${pct}%;${pct >= 100 ? 'background:var(--green)' : ''}"></span></div>
+            <div class="gr-bottom">
+              <span class="muted">${fmtMoneyShort(g.saved)} / ${fmtMoneyShort(g.target)}</span>
+              <span class="actions">
+                <button class="chip g-plus" style="padding:5px 10px">＋</button>
+                <button class="chip gray g-edit" style="padding:5px 9px">✏️</button>
+                <button class="chip red g-del" style="padding:5px 9px">🗑</button>
+              </span>
+            </div>
+          </div>`;
+        }).join('') : `<p class="muted">${t('noGoals')}</p>`}
+      </div>
+
       ${reminders.length ? `
       <div class="card">
         ${reminders.map((r) => `
@@ -1728,6 +1768,26 @@
     bindCurSel(renderWorker);
     document.getElementById('forecast-btn').addEventListener('click', () => { state.view = 'forecast'; renderWorker(); });
     document.getElementById('payday-row').addEventListener('click', () => askPayday(renderWorker));
+
+    // Maqsadlar
+    document.getElementById('goal-add').addEventListener('click', () => openGoalModal(null, renderWorker));
+    document.querySelectorAll('.goal-row').forEach((row) => {
+      const g = goals.find((x) => String(x.id) === row.dataset.goal);
+      row.querySelector('.g-plus').addEventListener('click', async () => {
+        const v = prompt(t('goalAddPrompt', g.title), '');
+        if (v === null || v === '') return;
+        try {
+          await api(`/api/goals/${g.id}`, { method: 'PUT', body: { add: +v } });
+          renderWorker();
+        } catch (ex) { toast(terr(ex), 'error'); }
+      });
+      row.querySelector('.g-edit').addEventListener('click', () => openGoalModal(g, renderWorker));
+      row.querySelector('.g-del').addEventListener('click', async () => {
+        if (!confirm(t('delEntryConfirm'))) return;
+        try { await api(`/api/goals/${g.id}`, { method: 'DELETE' }); renderWorker(); }
+        catch (ex) { toast(terr(ex), 'error'); }
+      });
+    });
     document.querySelectorAll('[data-fk]').forEach((b) =>
       b.addEventListener('click', () => { state.finKind = b.dataset.fk; renderWorker(); }));
     document.querySelectorAll('[data-add]').forEach((b) =>
@@ -2348,6 +2408,30 @@
         <div class="muted" style="margin-top:14px;font-size:12.5px">${LANG.toUpperCase()} · ${CUR}</div>
       </div>`);
     sheet.querySelector('#sh-close').addEventListener('click', closeSheet);
+  }
+
+  // Maqsad qo'shish/tahrirlash oynasi
+  function openGoalModal(goal, rerender) {
+    const m = openModal(`
+      <div class="modal-head"><h2 style="margin:0">🎯 ${goal ? esc(goal.title) : t('goalsTitle')}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <label>${t('goalTitleLabel')}</label>
+      <input id="g-title" value="${goal ? esc(goal.title) : ''}" placeholder="${t('goalTitlePh')}">
+      <label>${t('goalTargetLabel')}</label>
+      <input id="g-target" type="number" min="1" inputmode="numeric" value="${goal ? goal.target : ''}">
+      <div class="error-text" id="g-error"></div>
+      <button class="btn primary" id="g-save" style="margin-top:14px">${t('save')}</button>`);
+    m.querySelector('#m-close').addEventListener('click', closeModal);
+    m.querySelector('#g-save').addEventListener('click', async () => {
+      const err = m.querySelector('#g-error');
+      err.textContent = '';
+      try {
+        const body = { title: m.querySelector('#g-title').value, target: +m.querySelector('#g-target').value };
+        if (goal) await api(`/api/goals/${goal.id}`, { method: 'PUT', body });
+        else await api('/api/goals', { method: 'POST', body });
+        closeModal();
+        rerender();
+      } catch (ex) { err.textContent = terr(ex); }
+    });
   }
 
   // Ish joyi qo'shish/tahrirlash oynasi
