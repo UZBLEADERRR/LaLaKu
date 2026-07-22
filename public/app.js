@@ -915,6 +915,8 @@
         </div>
       </div>
 
+      ${status.checkedIn && me.active ? reminderBarHtml() : ''}
+
       ${status.checkedIn && me.active ? `
       <button class="scan-btn leave" id="global-stop">
         ${status.orgId && status.orgCheckMode === 'qr' ? `${ICONS.scan} ${t('checkoutBtn')}` : t('stopBtn')}
@@ -945,6 +947,18 @@
         const s = totalSec % 60;
         const el = document.getElementById('status-time');
         if (el) el.innerHTML = `${h}:${String(m).padStart(2, '0')}<span class="hm-sec">:${String(s).padStart(2, '0')}</span>`;
+        // Smena tugash sanog'i + eslatma
+        const sh = getShiftEnd();
+        const rl = document.getElementById('rem-left');
+        if (sh && sh.end) {
+          const remMs = new Date(sh.end) - Date.now();
+          if (remMs > 0) {
+            if (rl) { rl.textContent = `${t('remaining')} ${fmtCountdown(remMs)}`; rl.classList.remove('over'); }
+          } else {
+            if (rl) { rl.textContent = t('shiftOver'); rl.classList.add('over'); }
+            if (!sh.fired) { sh.fired = true; localStorage.setItem(shiftKey(), JSON.stringify(sh)); fireShiftReminder(); }
+          }
+        }
       };
       upd();
       state.timerId = setInterval(upd, 1000);
@@ -954,6 +968,7 @@
     const doAction = async (fn) => {
       try {
         const r = await fn();
+        if (r.action === 'out') clearShiftEnd(); // ketganda eslatmani tozalash
         toast(r.action === 'in' ? t('scanInOk', r.time) : t('scanOutOk', r.time), 'success', 4000);
         renderWorker();
       } catch (ex) { toast(terr(ex), 'error', 4500); }
@@ -976,6 +991,10 @@
         const loc = status.orgId ? await getLoc() : {};
         doAction(() => api('/api/punch', { method: 'POST', body: { ...loc } }));
       }));
+
+    // Smena tugash eslatmasi tugmalari
+    document.getElementById('rem-set')?.addEventListener('click', () => openShiftEndModal(renderWorker));
+    document.getElementById('rem-clear')?.addEventListener('click', () => { clearShiftEnd(); renderWorker(); });
 
     // Doim ko'rinadigan "Ketish" tugmasi (kelib bo'lgach)
     document.getElementById('global-stop')?.addEventListener('click', async () => {
@@ -1611,6 +1630,85 @@
       });
       localStorage.setItem('lalaku_notif_last', today);
     } catch {}
+  }
+
+  // ---------- Smena tugash eslatmasi (oldindan belgilangan ish vaqti) ----------
+  const shiftKey = () => `lalaku_shift_${activeAccount()?.id || 0}`;
+  function getShiftEnd() { try { return JSON.parse(localStorage.getItem(shiftKey())); } catch { return null; } }
+  function setShiftEnd(iso) { localStorage.setItem(shiftKey(), JSON.stringify({ end: iso, fired: false })); }
+  function clearShiftEnd() { localStorage.removeItem(shiftKey()); }
+  function fmtCountdown(ms) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    return `${h}:${String(m).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  }
+  // Qisqa "biip" ovozi — WebAudio orqali (fayl kerak emas)
+  function playBeep() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      const ctx = new AC();
+      [0, 0.35, 0.7].forEach((off) => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = 880;
+        o.connect(g); g.connect(ctx.destination);
+        const s = ctx.currentTime + off;
+        g.gain.setValueAtTime(0.0001, s);
+        g.gain.exponentialRampToValueAtTime(0.25, s + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, s + 0.28);
+        o.start(s); o.stop(s + 0.3);
+      });
+      setTimeout(() => ctx.close(), 1600);
+    } catch {}
+  }
+  function fireShiftReminder() {
+    if (navigator.vibrate) navigator.vibrate([300, 150, 300, 150, 400]);
+    playBeep();
+    toast(t('shiftDoneMsg'), 'success', 9000);
+    if (notifEnabled()) { try { new Notification(APP_NAME, { body: t('shiftDoneMsg'), icon: '/icons/icon-192.png' }); } catch {} }
+  }
+  function reminderBarHtml() {
+    const sh = getShiftEnd();
+    if (sh && sh.end) {
+      const d = new Date(sh.end);
+      const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      return `<div class="rem-bar">
+        <span>⏰ ${t('shiftEndsAt')} <b>${hhmm}</b> · <span id="rem-left" class="rem-left"></span></span>
+        <button class="chip gray" id="rem-clear">✕</button>
+      </div>`;
+    }
+    return `<button class="chip rem-set" id="rem-set">⏰ ${t('setShiftEnd')}</button>`;
+  }
+  function openShiftEndModal(onDone) {
+    const now = new Date();
+    const def = new Date(now.getTime() + 8 * 3600 * 1000);
+    const defHHMM = `${String(def.getHours()).padStart(2, '0')}:${String(def.getMinutes()).padStart(2, '0')}`;
+    const m = openModal(`
+      <div class="modal-head"><h2>${t('setShiftEnd')}</h2><button class="modal-close" id="m-close">✕</button></div>
+      <p class="muted" style="margin:0 0 12px">${t('shiftEndHint')}</p>
+      <div class="quick-row">
+        <button class="chip" data-add="4">+4${t('hShort')}</button>
+        <button class="chip" data-add="6">+6${t('hShort')}</button>
+        <button class="chip" data-add="8">+8${t('hShort')}</button>
+        <button class="chip" data-add="9">+9${t('hShort')}</button>
+      </div>
+      <label>${t('shiftEndTime')}</label>
+      <input type="time" id="se-time" value="${defHHMM}">
+      <button class="btn primary" id="se-save" style="margin-top:16px">${t('save')}</button>`);
+    const save = (iso) => { setShiftEnd(iso); closeModal(); onDone(); };
+    m.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
+      save(new Date(Date.now() + (+b.dataset.add) * 3600 * 1000).toISOString());
+    }));
+    m.querySelector('#se-save').addEventListener('click', () => {
+      const v = m.querySelector('#se-time').value;
+      if (!v) return;
+      const [hh, mm] = v.split(':').map(Number);
+      const target = new Date();
+      target.setHours(hh, mm, 0, 0);
+      if (target <= new Date()) target.setDate(target.getDate() + 1); // ertaga
+      save(target.toISOString());
+    });
+    m.querySelector('#m-close').addEventListener('click', closeModal);
   }
 
   function openFinanceModal(kind) {
