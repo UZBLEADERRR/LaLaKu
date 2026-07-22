@@ -373,6 +373,66 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // Oylik hisobot qatorlari: [sana, seanslar, soat]
+  function reportRows(summary) {
+    return Object.keys(summary.days).sort().map((d) => {
+      const dd = summary.days[d];
+      return [d, dd.sessions.map((x) => `${x.in}→${x.out || '…'}`).join(', '), fmtH(dd.minutes)];
+    });
+  }
+  // PDF eksport — chop etish ko'rinishi orqali (brauzer "Save as PDF")
+  function exportPdf(summary, jobs, year, month) {
+    document.getElementById('print-report')?.remove();
+    const e = computeEarnings(summary, jobs);
+    const div = document.createElement('div');
+    div.id = 'print-report';
+    div.innerHTML = `
+      <h1>${APP_NAME} — ${calTitle(year, month)}</h1>
+      <p>${esc(state.me.name)} · ${fmtH(summary.totalMinutes)} ${t('hUnit')} · ${summary.daysWorked} ${t('dUnit')}${e.hasRate ? ` · ${fmtMoney(e.net)}` : ''}</p>
+      <table><thead><tr><th>${t('dateLabel')}</th><th>${t('timeCol')}</th><th>${t('hUnit')}</th></tr></thead>
+      <tbody>${reportRows(summary).map((r) => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td><td>${r[2]}</td></tr>`).join('')}</tbody></table>`;
+    document.body.appendChild(div);
+    window.print();
+    setTimeout(() => div.remove(), 500);
+  }
+  // Rasm (PNG) eksport — canvas'da chizib yuklab beradi
+  function exportImage(summary, jobs, year, month) {
+    const rows = reportRows(summary);
+    const e = computeEarnings(summary, jobs);
+    const W = 720, pad2 = 36, rowH = 34;
+    const H = 210 + rows.length * rowH + 50;
+    const cv = document.createElement('canvas');
+    cv.width = W * 2; cv.height = H * 2;
+    const ctx = cv.getContext('2d');
+    ctx.scale(2, 2);
+    // Fon
+    ctx.fillStyle = '#0F1117'; ctx.fillRect(0, 0, W, H);
+    // Sarlavha
+    ctx.fillStyle = '#7C5CFF'; ctx.font = '800 28px system-ui';
+    ctx.fillText(APP_NAME, pad2, 56);
+    ctx.fillStyle = '#fff'; ctx.font = '800 22px system-ui';
+    ctx.fillText(`${calTitle(year, month)} — ${state.me.name}`, pad2, 96);
+    ctx.fillStyle = '#A2A8B5'; ctx.font = '600 16px system-ui';
+    ctx.fillText(`${fmtH(summary.totalMinutes)} ${t('hUnit')} · ${summary.daysWorked} ${t('dUnit')}${e.hasRate ? ` · ${fmtMoney(e.net)}` : ''}`, pad2, 128);
+    ctx.strokeStyle = '#262a35'; ctx.beginPath(); ctx.moveTo(pad2, 150); ctx.lineTo(W - pad2, 150); ctx.stroke();
+    // Qatorlar
+    let y = 190;
+    for (const r of rows) {
+      ctx.fillStyle = '#7C5CFF'; ctx.font = '800 15px system-ui';
+      ctx.fillText(String(+r[0].split('-')[2]), pad2, y);
+      ctx.fillStyle = '#fff'; ctx.font = '600 15px system-ui';
+      ctx.fillText(r[1].length > 46 ? r[1].slice(0, 45) + '…' : r[1], pad2 + 46, y);
+      ctx.fillStyle = '#24D17E'; ctx.font = '800 15px system-ui';
+      ctx.textAlign = 'right'; ctx.fillText(r[2], W - pad2, y); ctx.textAlign = 'left';
+      y += rowH;
+    }
+    const a = document.createElement('a');
+    a.href = cv.toDataURL('image/png');
+    a.download = `albafit-${year}-${pad(month)}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    toast(t('downloaded'), 'success');
+  }
+
   function toast(msg, type = '', ms = 3400) {
     const el = document.getElementById('toast');
     el.textContent = msg;
@@ -1320,7 +1380,12 @@
       <div class="card">
         ${calendarHtml(summary, year, month)}
       </div>
-      <button class="btn outline" id="copy-report">${t('copyReport')}</button>
+      <div class="export-row">
+        <button class="btn outline" id="copy-report">${t('copyReport')}</button>
+        <button class="btn outline" id="exp-csv">📊 CSV</button>
+        <button class="btn outline" id="exp-pdf">📄 PDF</button>
+        <button class="btn outline" id="exp-img">${t('exportImgBtn')}</button>
+      </div>
     `;
     bindCalendarNav(renderWorker);
     bindCurSel(renderWorker);
@@ -1347,6 +1412,13 @@
         .then(() => toast(t('copied'), 'success'))
         .catch(() => toast(t('genericError'), 'error'));
     });
+    document.getElementById('exp-csv').addEventListener('click', () => {
+      downloadCsv(`albafit-${year}-${pad(month)}.csv`,
+        [[t('dateLabel'), t('timeCol'), t('hUnit')], ...reportRows(summary)]);
+      toast(t('downloaded'), 'success');
+    });
+    document.getElementById('exp-pdf').addEventListener('click', () => exportPdf(summary, jobs, year, month));
+    document.getElementById('exp-img').addEventListener('click', () => exportImage(summary, jobs, year, month));
   }
 
   function openMyEntryModal(date, sess, jobs) {

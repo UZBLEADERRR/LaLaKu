@@ -501,8 +501,20 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 .wd-h { flex: 0 0 auto; font-weight: 800; font-size: 15px; color: var(--green); font-variant-numeric: tabular-nums; }
 .wd-row.open .wd-h { color: var(--amber); }
 .wd-live { color: var(--amber); font-size: 9px; vertical-align: middle; }
-.export-row { display: flex; gap: 10px; margin-bottom: 12px; }
-.export-row .btn { flex: 1; margin: 0; }
+.export-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.export-row .btn { flex: 1 1 40%; margin: 0; padding: 12px 8px; font-size: 13.5px; }
+
+/* Chop etish (PDF) hisobot ko'rinishi */
+#print-report { display: none; }
+@media print {
+  body > *:not(#print-report) { display: none !important; }
+  #print-report { display: block !important; color: #000; font-family: system-ui, sans-serif; padding: 24px; }
+  #print-report h1 { font-size: 20px; margin-bottom: 6px; }
+  #print-report p { color: #444; margin-bottom: 14px; }
+  #print-report table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #print-report th, #print-report td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; }
+  #print-report th { background: #f0f0f5; }
+}
 .table-tools { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; gap: 8px; }
 .table-tools .chip { min-height: 36px; }
 .zoom-ctrl { display: flex; gap: 6px; }
