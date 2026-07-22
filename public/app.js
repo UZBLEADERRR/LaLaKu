@@ -48,6 +48,8 @@
     return typeof v === 'function' ? v(...args) : v;
   };
   const terr = (ex) => (ex.code && (window.I18N[LANG].err[ex.code] || window.I18N.uz.err[ex.code])) || ex.message || t('genericError');
+  // Yorliq boshidagi emoji/belgilarni olib tashlash (menyu ikonasi alohida)
+  const noEmoji = (s) => String(s).replace(/^[^\p{L}\p{N}]+/u, '').trim();
   const MONTHS = () => window.I18N[LANG].months;
   const DOWS = () => window.I18N[LANG].dows;
   // Pul KRW'da saqlanadi, tanlangan valyutaga jonli aylantiriladi
@@ -2028,31 +2030,12 @@
           </div>`).join('') : `<p class="muted">${t('jobsNote')}</p>`}
       </div>
 
-      <div class="card">
-        <h2>${t('settingsT')}</h2>
-        <div class="set-row" id="set-accinfo">
-          <span>${t('accInfoRow')}</span><span class="muted">›</span>
-        </div>
-        <div class="set-row">
-          <span>${t('currency')}</span>
-          <select id="cur-sel" class="lang-sel" style="max-width:150px">
-            ${Object.keys(CURRENCIES).map((c) => `<option value="${c}" ${c === CUR ? 'selected' : ''}>${c} ${CURRENCIES[c]}</option>`).join('')}
-          </select>
-        </div>
-        <div class="set-row">
-          <span>${t('notifRow')}</span>
-          <button class="chip ${notifOn ? '' : 'gray'}" id="notif-toggle">${notifOn ? t('notifOn') : t('notifOff')}</button>
-        </div>
-        <div class="set-row" style="display:block">
-          <div style="margin-bottom:10px">${t('theme')}</div>
-          <div class="theme-row">
-            ${THEMES.map((th) => `
-              <button class="theme-chip ${th === THEME ? 'active' : ''}" data-theme-pick="${th}">
-                <span class="dot dot-${th}"></span>${t('theme' + th[0].toUpperCase() + th.slice(1))}
-              </button>`).join('')}
-          </div>
-          ${accentPickerHtml()}
-        </div>
+      <div class="card menu-card">
+        <button class="menu-row" id="m-account"><span class="mi">👤</span><span class="ml">${noEmoji(t('accInfoRow'))}</span><span class="ma">›</span></button>
+        <button class="menu-row" id="m-appearance"><span class="mi">🎨</span><span class="ml">${t('secAppearance')}</span><span class="ma">${t('theme' + THEME[0].toUpperCase() + THEME.slice(1))} ›</span></button>
+        <button class="menu-row" id="m-currency"><span class="mi">💱</span><span class="ml">${t('currency')}</span><span class="ma">${CUR} ${CURRENCIES[CUR]} ›</span></button>
+        <button class="menu-row" id="m-notif"><span class="mi">🔔</span><span class="ml">${noEmoji(t('notifRow'))}</span><span class="ma">${notifOn ? t('notifOn') : t('notifOff')} ›</span></button>
+        <button class="menu-row" id="m-about"><span class="mi">ℹ️</span><span class="ml">${t('secAbout')}</span><span class="ma">›</span></button>
       </div>
 
       <div class="card">
@@ -2064,28 +2047,14 @@
     `;
     bindLangSel();
     bindPayCard(renderWorker);
-    bindThemePicker(renderWorker);
     bindAccountsCard();
     document.getElementById('id-copy').addEventListener('click', () =>
       navigator.clipboard.writeText('#' + me.id).then(() => toast(t('copied'), 'success')));
-    document.getElementById('set-accinfo').addEventListener('click', () => openAccInfoModal(renderWorker));
-    document.getElementById('cur-sel').addEventListener('change', async (e) => {
-      CUR = e.target.value;
-      localStorage.setItem('lalaku_cur', CUR);
-      await loadRates();
-      renderWorker();
-    });
-    document.getElementById('notif-toggle').addEventListener('click', async () => {
-      if (localStorage.getItem('lalaku_notif') === '1') {
-        localStorage.setItem('lalaku_notif', '0');
-      } else {
-        if (!('Notification' in window)) return toast(t('notifDenied'), 'error');
-        const p = await Notification.requestPermission();
-        if (p !== 'granted') return toast(t('notifDenied'), 'error');
-        localStorage.setItem('lalaku_notif', '1');
-      }
-      renderWorker();
-    });
+    document.getElementById('m-account').addEventListener('click', () => openAccInfoModal(renderWorker));
+    document.getElementById('m-appearance').addEventListener('click', openAppearanceSheet);
+    document.getElementById('m-currency').addEventListener('click', openCurrencySheet);
+    document.getElementById('m-notif').addEventListener('click', openNotifSheet);
+    document.getElementById('m-about').addEventListener('click', openAboutSheet);
     document.getElementById('show-pay')?.addEventListener('click', () => {
       document.getElementById('pay-area').innerHTML = payCardHtml();
       bindPayCard(renderWorker);
@@ -2119,6 +2088,68 @@
       if (getAccounts().length) location.reload();
       else renderAuth();
     });
+  }
+
+  // ---------- Profil sozlamalari — bottom sheet bo'limlari ----------
+  function openAppearanceSheet() {
+    const sheet = openSheet(`
+      <div class="sheet-head"><div class="sheet-title">🎨 ${t('secAppearance')}</div><button class="modal-close" id="sh-close">✕</button></div>
+      <div class="theme-row">
+        ${THEMES.map((th) => `
+          <button class="theme-chip ${th === THEME ? 'active' : ''}" data-theme-pick="${th}">
+            <span class="dot dot-${th}"></span>${t('theme' + th[0].toUpperCase() + th.slice(1))}
+          </button>`).join('')}
+      </div>
+      ${accentPickerHtml()}`);
+    sheet.querySelector('#sh-close').addEventListener('click', closeSheet);
+    bindThemePicker(openAppearanceSheet); // rang o'zgarsa panelni qayta chizadi
+  }
+  function openCurrencySheet() {
+    const sheet = openSheet(`
+      <div class="sheet-head"><div class="sheet-title">💱 ${t('currency')}</div><button class="modal-close" id="sh-close">✕</button></div>
+      <div class="menu-card" style="box-shadow:none;padding:0">
+        ${Object.keys(CURRENCIES).map((c) => `
+          <button class="menu-row" data-cur="${c}"><span class="mi">${CURRENCIES[c]}</span><span class="ml">${c}</span><span class="ma">${c === CUR ? '✓' : ''}</span></button>`).join('')}
+      </div>`);
+    sheet.querySelector('#sh-close').addEventListener('click', closeSheet);
+    sheet.querySelectorAll('[data-cur]').forEach((b) => b.addEventListener('click', async () => {
+      CUR = b.dataset.cur;
+      localStorage.setItem('lalaku_cur', CUR);
+      await loadRates();
+      closeSheet();
+      renderWorker();
+    }));
+  }
+  function openNotifSheet() {
+    const notifOn = localStorage.getItem('lalaku_notif') === '1';
+    const sheet = openSheet(`
+      <div class="sheet-head"><div class="sheet-title">🔔 ${t('notifRow')}</div><button class="modal-close" id="sh-close">✕</button></div>
+      <p class="muted" style="margin:0 0 16px">${t('notifNote') || ''}</p>
+      <button class="btn ${notifOn ? 'outline' : 'primary'}" id="notif-toggle">${notifOn ? t('notifOn') : t('notifOff')}</button>`);
+    sheet.querySelector('#sh-close').addEventListener('click', closeSheet);
+    sheet.querySelector('#notif-toggle').addEventListener('click', async () => {
+      if (localStorage.getItem('lalaku_notif') === '1') {
+        localStorage.setItem('lalaku_notif', '0');
+      } else {
+        if (!('Notification' in window)) return toast(t('notifDenied'), 'error');
+        const p = await Notification.requestPermission();
+        if (p !== 'granted') return toast(t('notifDenied'), 'error');
+        localStorage.setItem('lalaku_notif', '1');
+      }
+      closeSheet();
+      renderWorker();
+    });
+  }
+  function openAboutSheet() {
+    const sheet = openSheet(`
+      <div class="sheet-head"><div class="sheet-title">ℹ️ ${t('secAbout')}</div><button class="modal-close" id="sh-close">✕</button></div>
+      <div style="text-align:center;padding:10px 0 4px">
+        <div class="logo" style="width:64px;height:64px;border-radius:22px;margin:0 auto 12px;font-size:30px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--accent),var(--accent-2));color:#fff">⏱</div>
+        <div style="font-size:22px;font-weight:800">${APP_NAME}</div>
+        <div class="muted" style="margin-top:6px">${t('aboutTagline')}</div>
+        <div class="muted" style="margin-top:14px;font-size:12.5px">${LANG.toUpperCase()} · ${CUR}</div>
+      </div>`);
+    sheet.querySelector('#sh-close').addEventListener('click', closeSheet);
   }
 
   // Ish joyi qo'shish/tahrirlash oynasi

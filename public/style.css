@@ -347,6 +347,19 @@ label { display: block; font-size: 13px; font-weight: 700; color: var(--muted); 
 .cal-legend .lg2 { background: color-mix(in srgb, var(--accent) 52%, var(--card)); }
 .cal-legend .lg3 { background: var(--accent); }
 
+/* iOS uslubidagi sozlamalar menyusi */
+.menu-card { padding: 6px 8px; }
+.menu-row {
+  display: flex; align-items: center; gap: 13px; width: 100%; text-align: left;
+  background: none; border: none; color: var(--text); font: inherit; font-weight: 700;
+  padding: 14px 10px; border-bottom: 1px solid var(--line); cursor: pointer;
+}
+.menu-row:last-child { border-bottom: none; }
+.menu-row:active { background: var(--accent-soft); border-radius: 12px; }
+.menu-row .mi { font-size: 19px; width: 26px; text-align: center; flex-shrink: 0; }
+.menu-row .ml { flex: 1; font-size: 15px; }
+.menu-row .ma { color: var(--muted); font-size: 13px; font-weight: 600; white-space: nowrap; }
+
 /* Bottom sheet */
 .sheet-back { position: fixed; inset: 0; z-index: 200; background: rgba(0, 0, 0, .5); display: flex; align-items: flex-end; justify-content: center; opacity: 0; transition: opacity .2s; }
 .sheet-back.open { opacity: 1; }
