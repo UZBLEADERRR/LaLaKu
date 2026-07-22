@@ -3067,28 +3067,23 @@
   async function padUsersTab(box) {
     const q = state.padQuery || '';
     const users = await api(`/api/admin/users?q=${encodeURIComponent(q)}`);
+    // Sodda ro'yxat: har bir foydalanuvchi — bitta bosiladigan karta.
+    // Barcha amallar (kun qo'shish, narx, parol, o'chirish) tafsilot oynasida.
     box.innerHTML = `
       <div style="max-width:600px">
         <input id="u-search" placeholder="${t('padSearch')}" value="${esc(q)}" style="margin-bottom:12px">
-        ${users.map((u) => `
-          <div class="card" style="padding:14px 16px" data-id="${u.id}">
-            <div class="worker-admin-row" style="border:none;padding:0">
-              <span class="avatar" style="background:${avatarColor(u.name)}">${esc(initials(u.name))}</span>
-              <div class="info">
-                <div class="name">${esc(u.name)} ${u.type === 'business' ? '🍽' : ''} ${u.active ? '' : `<span class="badge-inactive">${t('subExpired')}</span>`}</div>
-                <div class="sub">${esc(u.email)}${u.phone ? ` · ${esc(u.phone)}` : ''}${u.birthdate ? ` · 🎂 ${esc(u.birthdate)}` : ''}</div>
-                <div class="sub">${t('padUntil')}: ${new Date(u.paidUntil).toLocaleDateString()}</div>
-              </div>
-              <div class="actions">
-                <button class="chip gray" data-detail="1">👁</button>
-                <button class="chip" data-days="30">${t('padAddDays', 30)}</button>
-                <button class="chip" data-days="365">${t('padAddDays', 365)}</button>
-                <button class="chip gray" data-price="1">💲</button>
-                <button class="chip gray" data-pw="1">🔑</button>
-                <button class="chip red" data-days="-3660">✕</button>
-              </div>
-            </div>
-          </div>`).join('')}
+        ${users.length ? users.map((u) => `
+          <button class="user-item" data-id="${u.id}">
+            <span class="avatar" style="background:${avatarColor(u.name)}">${esc(initials(u.name))}</span>
+            <span class="info">
+              <span class="name">${esc(u.name)} ${u.type === 'business' ? '🍽' : ''}</span>
+              <span class="sub">${esc(u.email)}${u.phone ? ` · ${esc(u.phone)}` : ''}</span>
+            </span>
+            <span class="user-end">
+              <span class="dot-status ${u.active ? 'ok' : 'exp'}"></span>
+              <span class="sub">${new Date(u.paidUntil).toLocaleDateString()}</span>
+            </span>
+          </button>`).join('') : `<div class="card"><p class="muted">—</p></div>`}
       </div>
     `;
     let timer;
@@ -3096,58 +3091,57 @@
       clearTimeout(timer);
       timer = setTimeout(() => { state.padQuery = e.target.value; padUsersTab(box); }, 350);
     });
-    document.getElementById('u-search').focus();
-    box.querySelectorAll('[data-days]').forEach((b) =>
-      b.addEventListener('click', async () => {
-        const id = b.closest('[data-id]').dataset.id;
-        try {
-          await api(`/api/admin/users/${id}`, { method: 'PUT', body: { addDays: +b.dataset.days } });
-          toast(t('saved'), 'success');
-          padUsersTab(box);
-        } catch (ex) { toast(terr(ex), 'error'); }
-      }));
-    box.querySelectorAll('[data-price]').forEach((b) =>
-      b.addEventListener('click', async () => {
-        const row = b.closest('[data-id]');
-        const u = users.find((x) => String(x.id) === row.dataset.id);
-        const v = prompt(t('customPricePrompt', u.name), '');
-        if (v === null) return;
-        try {
-          await api(`/api/admin/users/${u.id}/price`, { method: 'PUT', body: { customPrice: v === '' ? null : +v } });
-          toast(t('saved'), 'success');
-        } catch (ex) { toast(terr(ex), 'error'); }
-      }));
-    box.querySelectorAll('[data-pw]').forEach((b) =>
-      b.addEventListener('click', async () => {
-        const u = users.find((x) => String(x.id) === b.closest('[data-id]').dataset.id);
-        const v = prompt(t('resetPwPrompt', u.name), '');
-        if (!v) return;
-        try {
-          await api(`/api/admin/users/${u.id}/password`, { method: 'PUT', body: { password: v } });
-          toast(t('saved'), 'success');
-        } catch (ex) { toast(terr(ex), 'error'); }
-      }));
-    box.querySelectorAll('[data-detail]').forEach((b) =>
-      b.addEventListener('click', () => openUserDetail(b.closest('[data-id]').dataset.id)));
+    box.querySelectorAll('.user-item').forEach((b) =>
+      b.addEventListener('click', () => openUserDetail(b.dataset.id, () => padUsersTab(box))));
   }
 
-  // Yaratuvchi uchun: foydalanuvchining to'liq ma'lumoti
-  async function openUserDetail(id) {
+  // Yaratuvchi uchun: foydalanuvchi tafsiloti + barcha amallar (bitta joyda)
+  async function openUserDetail(id, onChange) {
     let d;
     try { d = await api(`/api/admin/users/${id}/detail`); } catch (ex) { return toast(terr(ex), 'error'); }
     const row = (label, val) => `<div class="fin-row" style="padding:9px 0"><div class="info"><div class="sub" style="font-size:12px">${label}</div><div class="name" style="font-size:14.5px">${val}</div></div></div>`;
-    openModal(`
+    const m = openModal(`
       <div class="modal-head"><h2 style="margin:0">${esc(d.name)} ${d.type === 'business' ? '🍽' : '👷'}</h2><button class="modal-close" id="m-close">✕</button></div>
       ${row(t('email'), esc(d.email || '') || '—')}
       ${row(t('phone'), esc(d.phone || '') || '—')}
       ${row(t('birthdate'), esc(d.birthdate || '') || '—')}
       ${row(t('timezone'), esc(d.timezone || '') || '—')}
-      ${row(t('padUntil'), new Date(d.paidUntil).toLocaleDateString() + (d.customPrice != null ? ` · 💲${d.customPrice}` : ''))}
+      ${row(t('padUntil'), new Date(d.paidUntil).toLocaleDateString() + (d.customPrice != null ? ` · 💲${d.customPrice}` : '') + (d.active ? '' : ` · <span style="color:var(--red)">${t('subExpired')}</span>`))}
       ${d.type === 'business' && d.org
         ? row(t('orgName'), `${esc(d.org.name)} · ${d.org.members} ${t('padUsers').replace('👥 ', '')} · ${d.org.branches} 🏢`)
         : row(t('myTeams'), d.teams.length ? d.teams.map(esc).join(', ') : '—')}
       ${row(t('monthHours', MONTHS()[new Date().getMonth()]), `<b style="color:var(--green)">${fmtH(d.monthMinutes)}</b> · ${d.entriesTotal} 📋 · ${d.financeActive} 💳`)}
-    `).querySelector('#m-close').addEventListener('click', closeModal);
+      <div class="ud-actions">
+        <button class="chip" data-act="add" data-days="30">${t('padAddDays', 30)}</button>
+        <button class="chip" data-act="add" data-days="365">${t('padAddDays', 365)}</button>
+        <button class="chip gray" data-act="price">💲 ${t('customPriceBtn')}</button>
+        <button class="chip gray" data-act="pw">🔑 ${t('resetPwBtn')}</button>
+        <button class="chip red" data-act="off">✕ ${t('deactivateBtn')}</button>
+      </div>
+    `);
+    m.querySelector('#m-close').addEventListener('click', closeModal);
+    const refresh = () => { closeModal(); onChange && onChange(); };
+    m.querySelectorAll('[data-act]').forEach((b) => b.addEventListener('click', async () => {
+      const act = b.dataset.act;
+      try {
+        if (act === 'add') {
+          await api(`/api/admin/users/${id}`, { method: 'PUT', body: { addDays: +b.dataset.days } });
+        } else if (act === 'off') {
+          if (!confirm(t('deactivateConfirm', d.name))) return;
+          await api(`/api/admin/users/${id}`, { method: 'PUT', body: { addDays: -3660 } });
+        } else if (act === 'price') {
+          const v = prompt(t('customPricePrompt', d.name), d.customPrice != null ? String(d.customPrice) : '');
+          if (v === null) return;
+          await api(`/api/admin/users/${id}/price`, { method: 'PUT', body: { customPrice: v === '' ? null : +v } });
+        } else if (act === 'pw') {
+          const v = prompt(t('resetPwPrompt', d.name), '');
+          if (!v) return;
+          await api(`/api/admin/users/${id}/password`, { method: 'PUT', body: { password: v } });
+        }
+        toast(t('saved'), 'success');
+        refresh();
+      } catch (ex) { toast(terr(ex), 'error'); }
+    }));
   }
 
   // ================================================================
