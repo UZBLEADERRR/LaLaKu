@@ -895,32 +895,56 @@
       me.memberships.map((m) => cardFor('team', m)).join('') +
       personalJobs.map((j) => cardFor('job', j)).join('');
 
+    // Salomlashuv (kun vaqtiga qarab)
+    const hr = now.getHours();
+    const greet = hr < 12 ? t('greetMorning') : hr < 18 ? t('greetAfternoon') : t('greetEvening');
+    // Joriy smenaning ish joyi nomi va jonli daromad tezligi (₩/sekund, sof)
+    const activeJob = status.checkedIn
+      ? (status.jobId ? jobs.find((j) => j.id === status.jobId) : jobs.find((j) => j.orgId === status.orgId))
+      : null;
+    const activeName = status.orgName || (activeJob ? activeJob.name : '') || t('myWorkplaces');
+    let liveRateSec = 0;
+    if (activeJob && (activeJob.payType === 'hourly' || !activeJob.payType) && activeJob.rate) {
+      liveRateSec = (activeJob.rate * (1 - (activeJob.taxPercent || 0) / 100)) / 3600;
+    }
+
     $app.innerHTML = `
       <div class="topbar">${brandHtml(me.name)}${curSelHtml()}</div>
       ${state.offline ? `<div class="sub-banner warn">${t('offlineTag')}</div>` : ''}
       ${subBannerHtml()}
       ${invitesHtml}
 
-      <div class="hero-mini ${status.checkedIn ? 'working' : ''}">
-        <div class="hm-top">
-          <div class="hm-label">${status.checkedIn
-            ? `${t('atWork')}${status.orgName ? ` · ${esc(status.orgName)}` : ''} · ${status.since}`
-            : t('offWork').replace('🌙 ', '')}</div>
-          <div class="hm-time" id="status-time">${status.checkedIn ? '' : fmtH(todayMin)}</div>
-          ${e.hasRate ? `<div class="hm-today">${t('todayEarned')}: <b>${fmtMoney(todayNet)}</b></div>` : ''}
+      <div class="dash-head">
+        <div class="dash-greet">${greet} 👋</div>
+        <div class="dash-name">${esc(me.name)}</div>
+      </div>
+
+      <div class="dash-stats">
+        ${e.hasRate ? `<div class="dstat wide">
+          <span class="dl">${t('todaysEarnings')}</span>
+          <span class="dv accent" id="today-earn">${fmtMoney(todayNet)}</span>
+        </div>` : ''}
+        <div class="dstat">
+          <span class="dl">${t('workedTodayLabel')}</span>
+          <span class="dv" id="status-time">${fmtH(todayMin)}</span>
         </div>
-        <div class="hm-stats">
-          <div><b>${fmtH(summary.totalMinutes)}</b><span>${t('monthTotal', MONTHS()[month - 1])}</span></div>
-          ${e.hasRate ? `<div><b>${fmtMoneyShort(e.net)}</b><span>${t('monthNet')}</span></div>` : ''}
+        <div class="dstat">
+          <span class="dl">${t('thisMonthLabel')}</span>
+          <span class="dv">${e.hasRate ? fmtMoneyShort(e.net) : fmtH(summary.totalMinutes)}</span>
         </div>
       </div>
 
-      ${status.checkedIn && me.active ? reminderBarHtml() : ''}
-
       ${status.checkedIn && me.active ? `
-      <button class="scan-btn leave" id="global-stop">
-        ${status.orgId && status.orgCheckMode === 'qr' ? `${ICONS.scan} ${t('checkoutBtn')}` : t('stopBtn')}
-      </button>` : ''}
+      <div class="shift-card">
+        <div class="sc-head">
+          <span class="sc-live"><span class="live-dot"></span>${t('currentShift')}</span>
+          <span class="sc-name">${esc(activeName)} · ${status.since}</span>
+        </div>
+        ${reminderBarHtml()}
+        <button class="btn stop-btn" id="global-stop">
+          ${status.orgId && status.orgCheckMode === 'qr' ? `${ICONS.scan} ${t('checkoutBtn')}` : t('stopTimerBtn')}
+        </button>
+      </div>` : ''}
 
       ${!me.active ? payCardHtml() : ''}
 
@@ -947,6 +971,12 @@
         const s = totalSec % 60;
         const el = document.getElementById('status-time');
         if (el) el.innerHTML = `${h}:${String(m).padStart(2, '0')}<span class="hm-sec">:${String(s).padStart(2, '0')}</span>`;
+        // Avtomatik maosh — bugungi daromad har sekund yangilanadi
+        const ee = document.getElementById('today-earn');
+        if (ee && liveRateSec) {
+          const elapsed = Math.max(0, (Date.now() - started) / 1000);
+          ee.textContent = fmtMoney(Math.round(todayNet + liveRateSec * elapsed));
+        }
         // Smena tugash sanog'i + eslatma
         const sh = getShiftEnd();
         const rl = document.getElementById('rem-left');
