@@ -522,6 +522,18 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 .quick-row { display: flex; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
 .quick-row .chip { flex: 1; justify-content: center; min-height: 44px; font-weight: 700; }
 
+/* Tanaffus taymeri */
+.break-set { background: var(--amber-soft); color: var(--amber); }
+.break-bar { border-color: var(--amber); }
+.break-bar #break-time { color: var(--amber); }
+
+/* Maosh kuni kartasi */
+.payday-card { display: flex; align-items: center; gap: 13px; cursor: pointer; padding: 16px 18px; }
+.payday-card .pc-ic { font-size: 22px; flex-shrink: 0; }
+.payday-card .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.payday-card .name { font-weight: 800; font-size: 14.5px; }
+.payday-card .sub { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+
 /* Admin foydalanuvchilar — sodda bosiladigan ro'yxat */
 .user-item {
   display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;

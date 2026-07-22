@@ -958,10 +958,13 @@
           <span class="sc-name">${esc(activeName)} · ${status.since}</span>
         </div>
         ${reminderBarHtml()}
+        ${breakBarHtml()}
         <button class="btn stop-btn" id="global-stop">
           ${status.orgId && status.orgCheckMode === 'qr' ? `${ICONS.scan} ${t('checkoutBtn')}` : t('stopTimerBtn')}
         </button>
       </div>` : ''}
+
+      ${paydayCardHtml(e)}
 
       ${!me.active ? payCardHtml() : ''}
 
@@ -994,6 +997,12 @@
           const elapsed = Math.max(0, (Date.now() - started) / 1000);
           ee.textContent = fmtMoney(Math.round(todayNet + liveRateSec * elapsed));
         }
+        // Tanaffus sanog'i
+        const bt = document.getElementById('break-time');
+        if (bt) {
+          const b = getBreakState();
+          if (b.start) bt.textContent = fmtCountdown((b.total * 1000) + (Date.now() - new Date(b.start)));
+        }
         // Smena tugash sanog'i + eslatma
         const sh = getShiftEnd();
         const rl = document.getElementById('rem-left');
@@ -1015,7 +1024,7 @@
     const doAction = async (fn) => {
       try {
         const r = await fn();
-        if (r.action === 'out') clearShiftEnd(); // ketganda eslatmani tozalash
+        if (r.action === 'out') { clearShiftEnd(); clearBreak(); } // ketganda eslatma va tanaffusni tozalash
         toast(r.action === 'in' ? t('scanInOk', r.time) : t('scanOutOk', r.time), 'success', 4000);
         renderWorker();
       } catch (ex) { toast(terr(ex), 'error', 4500); }
@@ -1042,6 +1051,17 @@
     // Smena tugash eslatmasi tugmalari
     document.getElementById('rem-set')?.addEventListener('click', () => openShiftEndModal(renderWorker));
     document.getElementById('rem-clear')?.addEventListener('click', () => { clearShiftEnd(); renderWorker(); });
+
+    // Tanaffus taymeri: boshlash / davom etish
+    document.getElementById('break-btn')?.addEventListener('click', () => {
+      const b = getBreakState();
+      if (b.start) { b.total += Math.max(0, Math.round((Date.now() - new Date(b.start)) / 1000)); b.start = null; }
+      else b.start = new Date().toISOString();
+      setBreakState(b);
+      renderWorker();
+    });
+    // Maosh kuni kartasi — bosilsa o'zgartirish
+    document.getElementById('payday-card')?.addEventListener('click', () => askPayday(renderWorker));
 
     // Doim ko'rinadigan "Ketish" tugmasi (kelib bo'lgach)
     document.getElementById('global-stop')?.addEventListener('click', async () => {
@@ -1603,6 +1623,11 @@
         <div class="sal-row net"><span>${t('leftOver')}</span><b style="color:${leftOver >= 0 ? 'var(--green)' : 'var(--red)'}">${fmtMoney(leftOver)}</b></div>
       </div>
 
+      <div class="card menu-card">
+        <button class="menu-row" id="payday-row"><span class="mi">💵</span><span class="ml">${t('paydayTitle')}</span>
+          <span class="ma">${(+localStorage.getItem(paydayKey()) || 0) ? t('everyMonthShort', +localStorage.getItem(paydayKey())) + ' ›' : t('paydaySet') + ' ›'}</span></button>
+      </div>
+
       ${reminders.length ? `
       <div class="card">
         ${reminders.map((r) => `
@@ -1630,6 +1655,7 @@
     bindSalaryCard(renderWorker);
     bindCurSel(renderWorker);
     document.getElementById('forecast-btn').addEventListener('click', () => { state.view = 'forecast'; renderWorker(); });
+    document.getElementById('payday-row').addEventListener('click', () => askPayday(renderWorker));
     document.querySelectorAll('[data-fk]').forEach((b) =>
       b.addEventListener('click', () => { state.finKind = b.dataset.fk; renderWorker(); }));
     document.querySelectorAll('[data-add]').forEach((b) =>
@@ -1741,6 +1767,51 @@
     toast(t('shiftDoneMsg'), 'success', 9000);
     if (notifEnabled()) { try { new Notification(APP_NAME, { body: t('shiftDoneMsg'), icon: '/icons/icon-192.png' }); } catch {} }
   }
+  // ---------- Tanaffus taymeri (smena ichida, informatsion) ----------
+  const breakKey = () => `lalaku_break_${activeAccount()?.id || 0}`;
+  function getBreakState() { try { return JSON.parse(localStorage.getItem(breakKey())) || { start: null, total: 0 }; } catch { return { start: null, total: 0 }; } }
+  function setBreakState(b) { localStorage.setItem(breakKey(), JSON.stringify(b)); }
+  function clearBreak() { localStorage.removeItem(breakKey()); }
+  function breakBarHtml() {
+    const b = getBreakState();
+    if (b.start) return `<div class="rem-bar break-bar">
+      <span>☕ ${t('breakLabel')} · <b id="break-time" class="rem-left">0:00:00</b></span>
+      <button class="chip" id="break-btn">▶ ${t('resumeBtn')}</button>
+    </div>`;
+    return `<button class="chip rem-set break-set" id="break-btn">☕ ${t('breakBtn')}${b.total ? ` · ${fmtCountdown(b.total * 1000)}` : ''}</button>`;
+  }
+
+  // ---------- Maosh kuni (salary calendar) ----------
+  const paydayKey = () => `lalaku_payday_${activeAccount()?.id || 0}`;
+  function nextPayday(pd) {
+    const now = new Date();
+    const mk = (y, m) => new Date(y, m, Math.min(pd, new Date(y, m + 1, 0).getDate()));
+    let d = mk(now.getFullYear(), now.getMonth());
+    if (d < new Date(now.getFullYear(), now.getMonth(), now.getDate())) d = mk(now.getFullYear(), now.getMonth() + 1);
+    const days = Math.round((d - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000);
+    return { date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`, days };
+  }
+  function paydayCardHtml(e) {
+    const pd = +localStorage.getItem(paydayKey()) || 0;
+    if (!pd) return '';
+    const np = nextPayday(pd);
+    return `<div class="card payday-card" id="payday-card">
+      <span class="pc-ic">💵</span>
+      <span class="info"><span class="name">${t('paydayTitle')} · ${dayTitle(np.date)}</span>
+        <span class="sub">${np.days ? t('paydayIn', np.days) : t('paydayToday')}</span></span>
+      ${e && e.hasRate ? `<b style="color:var(--accent)">${fmtMoneyShort(e.net)}</b>` : ''}
+    </div>`;
+  }
+  function askPayday(onDone) {
+    const cur = +localStorage.getItem(paydayKey()) || '';
+    const v = prompt(t('paydayPrompt'), cur ? String(cur) : '25');
+    if (v === null) return;
+    const n = parseInt(v, 10);
+    if (!n || n < 1 || n > 31) localStorage.removeItem(paydayKey());
+    else localStorage.setItem(paydayKey(), String(n));
+    onDone();
+  }
+
   function reminderBarHtml() {
     const sh = getShiftEnd();
     if (sh && sh.end) {
