@@ -101,16 +101,50 @@
   }
 
   // ---------- Mavzu ----------
-  const THEMES = ['classic', 'kakao', 'kakaodark', 'mint', 'dark'];
+  const THEMES = ['classic', 'kakao', 'kakaodark', 'mint', 'dark', 'midnight'];
   let THEME = localStorage.getItem('lalaku_theme') || 'classic';
   if (!THEMES.includes(THEME)) THEME = 'classic';
+  // Qo'lda tanlangan urg'u rang (custom accent) — istagan temaga ustidan qo'llanadi
+  const ACCENT_PRESETS = ['#5b5bd6', '#7c5cff', '#0d9488', '#e11d48', '#f97316', '#2563eb', '#16a34a', '#db2777'];
+  let ACCENT = localStorage.getItem('lalaku_accent') || '';
+  // hex -> biroz to'qroq variant (accent-2 gradienti uchun)
+  function shadeHex(hex, amt) {
+    const n = parseInt(hex.slice(1), 16);
+    const cl = (v) => Math.max(0, Math.min(255, v));
+    const r = cl((n >> 16) + amt), g = cl(((n >> 8) & 255) + amt), b = cl((n & 255) + amt);
+    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
+  }
+  function applyAccent() {
+    const root = document.documentElement;
+    if (ACCENT && /^#[0-9a-f]{6}$/i.test(ACCENT)) {
+      root.style.setProperty('--accent', ACCENT);
+      root.style.setProperty('--accent-2', shadeHex(ACCENT, 26));
+      root.style.setProperty('--accent-soft', ACCENT + '22');
+    } else {
+      root.style.removeProperty('--accent');
+      root.style.removeProperty('--accent-2');
+      root.style.removeProperty('--accent-soft');
+    }
+  }
   function applyTheme() {
     document.documentElement.dataset.theme = THEME;
     document.querySelector('meta[name=theme-color]')?.setAttribute('content',
-      { classic: '#5b5bd6', kakao: '#FEE500', kakaodark: '#241a16', mint: '#0d9488', dark: '#12141f' }[THEME]);
+      { classic: '#5b5bd6', kakao: '#FEE500', kakaodark: '#241a16', mint: '#0d9488', dark: '#12141f', midnight: '#0d0d0d' }[THEME]);
+    applyAccent();
   }
   applyTheme();
 
+  function accentPickerHtml() {
+    return `<div class="accent-label">${t('accentColor')}</div>
+      <div class="accent-row">
+        <button class="accent-swatch ${!ACCENT ? 'active' : ''}" data-accent="" title="${t('accentDefault')}">✕</button>
+        ${ACCENT_PRESETS.map((c) => `
+          <button class="accent-swatch ${ACCENT.toLowerCase() === c ? 'active' : ''}" data-accent="${c}" style="background:${c}"></button>`).join('')}
+        <label class="accent-swatch accent-custom" title="${t('accentCustom')}" style="${ACCENT && !ACCENT_PRESETS.includes(ACCENT.toLowerCase()) ? `background:${ACCENT}` : ''}">
+          🎨<input type="color" id="accent-custom-input" value="${ACCENT || '#5b5bd6'}" style="position:absolute;opacity:0;width:100%;height:100%;left:0;top:0;cursor:pointer">
+        </label>
+      </div>`;
+  }
   function themePickerHtml() {
     return `<div class="card"><h2>${t('theme')}</h2>
       <div class="theme-row">
@@ -118,7 +152,8 @@
           <button class="theme-chip ${th === THEME ? 'active' : ''}" data-theme-pick="${th}">
             <span class="dot dot-${th}"></span>${t('theme' + th[0].toUpperCase() + th.slice(1))}
           </button>`).join('')}
-      </div></div>`;
+      </div>
+      ${accentPickerHtml()}</div>`;
   }
   function bindThemePicker(rerender) {
     document.querySelectorAll('[data-theme-pick]').forEach((b) =>
@@ -128,6 +163,20 @@
         applyTheme();
         rerender();
       }));
+    document.querySelectorAll('[data-accent]').forEach((b) =>
+      b.addEventListener('click', () => {
+        ACCENT = b.dataset.accent || '';
+        if (ACCENT) localStorage.setItem('lalaku_accent', ACCENT); else localStorage.removeItem('lalaku_accent');
+        applyAccent();
+        rerender();
+      }));
+    const ci = document.getElementById('accent-custom-input');
+    if (ci) ci.addEventListener('input', () => {
+      ACCENT = ci.value;
+      localStorage.setItem('lalaku_accent', ACCENT);
+      applyAccent();
+    });
+    if (ci) ci.addEventListener('change', () => rerender());
   }
 
   // ---------- Joylashuv (geofence uchun) ----------
@@ -1832,6 +1881,7 @@
                 <span class="dot dot-${th}"></span>${t('theme' + th[0].toUpperCase() + th.slice(1))}
               </button>`).join('')}
           </div>
+          ${accentPickerHtml()}
         </div>
       </div>
 
@@ -2660,6 +2710,7 @@
                 <span class="dot dot-${th}"></span>${t('theme' + th[0].toUpperCase() + th.slice(1))}
               </button>`).join('')}
           </div>
+          ${accentPickerHtml()}
         </div>
       </div>
     `;
