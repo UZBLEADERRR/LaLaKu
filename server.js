@@ -172,6 +172,7 @@ async function initDb() {
     ALTER TABLE entries ADD COLUMN IF NOT EXISTS job_id INTEGER REFERENCES jobs(id) ON DELETE SET NULL;
     ALTER TABLE orgs ADD COLUMN IF NOT EXISTS allowed_ip TEXT;
     ALTER TABLE orgs ADD COLUMN IF NOT EXISTS auto_checkout BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE orgs ADD COLUMN IF NOT EXISTS share_token TEXT;
   `);
 
   // Mavjud jamoa a'zoliklari uchun bog'langan ish joyi yozuvlari
@@ -1076,8 +1077,23 @@ app.get('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
     checkMode: org.check_mode,
     allowedIp: org.allowed_ip || null,
     autoCheckout: !!org.auto_checkout,
+    shareToken: org.share_token || null,
     branches, members, pendingInvites,
   });
+}));
+
+// Jadval havolasi: ochib qo'yish/yangilash (eski havola ishlamay qoladi) va o'chirish
+app.post('/api/org/share/rotate', requireUser, requireBusiness, wrap(async (req, res) => {
+  const org = await orgOf(req.user.id);
+  const token = newToken('T');
+  await pool.query(`UPDATE orgs SET share_token = $1 WHERE id = $2`, [token, org.id]);
+  res.json({ shareToken: token });
+}));
+
+app.delete('/api/org/share', requireUser, requireBusiness, wrap(async (req, res) => {
+  const org = await orgOf(req.user.id);
+  await pool.query(`UPDATE orgs SET share_token = NULL WHERE id = $1`, [org.id]);
+  res.json({ ok: true });
 }));
 
 app.put('/api/org', requireUser, requireBusiness, wrap(async (req, res) => {
@@ -1600,6 +1616,84 @@ app.post('/api/admin/payments/:id/reject', requirePlatformAdmin, wrap(async (req
     `UPDATE payments SET status = 'rejected', decided_at = now(), image = NULL WHERE id = $1 AND status = 'pending'`,
     [parseInt(req.params.id, 10)]);
   res.json({ ok: true });
+}));
+
+// Ommaviy (autentifikatsiyasiz) jadval havolasi — faqat o'qish uchun.
+// Egasi istagan vaqt havolani yangilaydi (rotate) → eski havola ishlamay qoladi.
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+app.get('/t/:token', wrap(async (req, res) => {
+  const org = (await pool.query(
+    `SELECT o.id, o.name, u.timezone FROM orgs o JOIN users u ON u.id = o.owner_id WHERE o.share_token = $1`,
+    [req.params.token])).rows[0];
+  if (!org) return res.status(404).send('<!doctype html><meta charset=utf-8><body style="background:#0F1117;color:#A2A8B5;font-family:system-ui;text-align:center;padding:60px">Havola eskirgan yoki yangilangan.</body>');
+  const tz = org.timezone;
+  const m = /^(\d{4})-(\d{2})$/.exec(String(req.query.ym || ''));
+  const now = new Date();
+  const year = m ? +m[1] : now.getFullYear();
+  const month = m ? +m[2] : now.getMonth() + 1;
+  const { start, next } = monthBounds(year, month);
+  const members = (await pool.query(
+    `SELECT u.id, u.name, m.hourly_rate::float AS rate, m.tax_percent::float AS tax
+     FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.org_id = $1 ORDER BY u.name`, [org.id])).rows;
+  const rows = (await pool.query(
+    `SELECT user_id, work_date::text AS date, check_in, check_out,
+            ROUND(EXTRACT(EPOCH FROM (COALESCE(check_out, now()) - check_in)) / 60)::int AS minutes
+     FROM entries WHERE org_id = $1 AND work_date >= $2 AND work_date < $3 ORDER BY check_in`, [org.id, start, next])).rows;
+  const byUser = {};
+  const totals = {};
+  for (const e of rows) {
+    (byUser[e.user_id] ||= {});
+    (byUser[e.user_id][e.date] ||= []).push(`${localTime(tz, e.check_in)}~${e.check_out ? localTime(tz, e.check_out) : '…'}`);
+    totals[e.user_id] = (totals[e.user_id] || 0) + e.minutes;
+  }
+  const dim = new Date(year, month, 0).getDate();
+  const fmtH = (mins) => `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, '0')}`;
+  const dows = ['Ya', 'Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh'];
+  let body = '';
+  for (let d = 1; d <= dim; d++) {
+    const date = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const dow = new Date(year, month - 1, d).getDay();
+    const cls = dow === 0 ? 'sun' : dow === 6 ? 'sat' : '';
+    const cells = members.map((mem) => {
+      const v = byUser[mem.id]?.[date];
+      return `<td>${v ? v.map(esc).join('<br>') : '·'}</td>`;
+    }).join('');
+    body += `<tr class="${cls}"><td class="d">${d}<small>${dows[dow]}</small></td>${cells}</tr>`;
+  }
+  const totRow = `<tr class="sum"><td class="d">Jami</td>${members.map((mem) => `<td>${fmtH(totals[mem.id] || 0)}</td>`).join('')}</tr>`;
+  const salRow = `<tr class="sum"><td class="d">Maosh</td>${members.map((mem) => {
+    const mins = totals[mem.id] || 0;
+    const earned = mem.rate > 0 ? Math.round(mins / 60 * mem.rate * (1 - (mem.tax || 0) / 100)) : null;
+    return `<td>${earned != null ? '₩' + earned.toLocaleString() : '—'}</td>`;
+  }).join('')}</tr>`;
+  const head = members.map((mem) => `<th>${esc(mem.name)}</th>`).join('');
+  const MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avgust', 'Sentabr', 'Oktabr', 'Noyabr', 'Dekabr'];
+  res.send(`<!doctype html><html lang="uz"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5">
+<title>${esc(org.name)} — ${MONTHS[month - 1]} ${year}</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;background:#0F1117;color:#fff;font-family:system-ui,-apple-system,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:20px 14px 60px}
+h1{font-size:20px;margin:0 0 2px}.sub{color:#A2A8B5;font-size:13px;margin-bottom:16px}
+.scroll{overflow:auto;border-radius:16px;border:1px solid #262B36}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:8px 6px;text-align:center;white-space:nowrap;border-bottom:1px solid #262B36;border-right:1px solid #262B36}
+thead th{position:sticky;top:0;background:#171A22;font-weight:800}
+td.d,th.corner{position:sticky;left:0;background:#12141b;font-weight:800;min-width:44px;text-align:center;line-height:1.05}
+td.d small{display:block;color:#A2A8B5;font-size:10px}
+tr.sat td{background:#141d2b}tr.sun td{background:#241722}
+td{color:#24D17E;font-weight:600}
+tr.sum td{background:#14251d;color:#24D17E;font-weight:800;border-top:2px solid #24D17E}
+.foot{color:#A2A8B5;font-size:12px;margin-top:14px;text-align:center}
+</style></head><body><div class="wrap">
+<h1>${esc(org.name)}</h1><div class="sub">${MONTHS[month - 1]} ${year} · faqat o'qish uchun</div>
+<div class="scroll"><table><thead><tr><th class="corner">Sana</th>${head}</tr></thead>
+<tbody>${body}</tbody><tfoot>${totRow}${salRow}</tfoot></table></div>
+<div class="foot">AlbaFit · havola egasi tomonidan istalgan vaqt yangilanishi mumkin</div>
+</div></body></html>`);
 }));
 
 // SPA: qolgan barcha yo'llar index.html'ga (jumladan /join/TOKEN)
