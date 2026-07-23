@@ -126,6 +126,25 @@ class AppCard extends StatelessWidget {
   }
 }
 
+/// Bo'sh holat uchun yumshoq ramkalangan karta (CTA bilan).
+class DottedCard extends StatelessWidget {
+  final Widget child;
+  const DottedCard({super.key, required this.child});
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(Gap.lg),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(Gap.radius),
+        border: Border.all(color: AppColors.line, width: 1.5),
+      ),
+      child: child,
+    );
+  }
+}
+
 /// Bitta statistika bloki.
 class StatTile extends StatelessWidget {
   final String label;
