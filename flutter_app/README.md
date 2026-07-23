@@ -140,11 +140,12 @@ Autentifikatsiya: `/api/login` (yoki `/api/register`) javobidagi `token` —
 | Skeleton loading + animatsiya    | ✅ bor | `widgets/ui.dart` |
 | AI moliyaviy yordamchi ekrani    | ✅ bor | `assistant_screen.dart` + `/api/ai/advice` |
 | Lokal bildirishnomalar           | ✅ bor | `notification_service.dart` (kunlik AI maslahati) |
-| Heatmap kalendar + BottomSheet   | 🔶 asosiy | `calendar_screen.dart` (to'liq keyingi PR) |
-| Pastki navbar                    | ✅ bor | `app_shell.dart` |
-| Monthly prediction / Overtime / Tax | ⬜ TODO | dashboard/analytics hisob-kitob |
-| Finance grafiklari (donut/bar)   | ⬜ TODO | `finance_screen.dart` + `fl_chart` |
-| Goals / Statistics / Analytics   | ⬜ TODO | yangi ekranlar |
+| Heatmap kalendar + kun BottomSheet | ✅ bor | `calendar_screen.dart` (worked/salary/izoh) |
+| Pastki navbar (5 tab)            | ✅ bor | `app_shell.dart` |
+| Finance donut grafik + breakdown | ✅ bor | `finance_screen.dart` + `fl_chart` |
+| Maqsadlar (Goals, progress)      | ✅ bor | `finance_screen.dart` |
+| Kun izohlari (Notes)             | ✅ bor | `calendar_screen.dart` |
+| Monthly prediction / Overtime / Tax | ⬜ TODO | analytics ekrani |
 | Export (PDF/Excel/Image)         | ⬜ TODO | `printing` / `pdf` paketlari |
 | Push/lokal eslatmalar + haptika  | ⬜ TODO | `flutter_local_notifications`, `HapticFeedback` |
 | Home widget                      | ⬜ TODO | `home_widget` |

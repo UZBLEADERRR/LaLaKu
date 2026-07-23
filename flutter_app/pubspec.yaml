@@ -18,9 +18,9 @@ dependencies:
   flutter_local_notifications: ^17.2.3  # lokal bildirishnomalar (maslahat, eslatma)
   timezone: ^0.9.4                       # rejalashtirilgan bildirishnoma vaqti
   flutter_timezone: ^3.0.1               # qurilma vaqt mintaqasini aniqlash
+  fl_chart: ^0.68.0                       # moliya grafiklari (donut, bar)
 
-  # Keyingi bosqichlarda qo'shiladigan paketlar:
-  #   fl_chart          -> Finance/Analytics grafiklari (donut, bar)
+  # Keyingi bosqichda qo'shiladigan paket:
   #   in_app_purchase   -> Google Play / App Store premium obuna (store billing)
 
 dev_dependencies:
