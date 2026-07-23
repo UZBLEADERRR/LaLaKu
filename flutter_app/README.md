@@ -142,7 +142,8 @@ Autentifikatsiya: `/api/login` (yoki `/api/register`) javobidagi `token` —
 | Shift start/stop + ish joyi tanlash | ✅ bor | `dashboard_screen.dart` + `api.punch` |
 | Break timer (tanaffus)           | ✅ bor | `dashboard_screen.dart` (lokal state) |
 | Skeleton loading + animatsiya    | ✅ bor | `widgets/ui.dart` |
-| AI moliyaviy yordamchi ekrani    | ✅ bor | `assistant_screen.dart` + `/api/ai/advice` |
+| AI chatbot (savol-javob + tarix)  | ✅ bor | `assistant_screen.dart` + `/api/ai/chat` |
+| Til / Valyuta / Server sozlamalari | ✅ bor | `settings_provider.dart` + `i18n.dart` |
 | Lokal bildirishnomalar           | ✅ bor | `notification_service.dart` (kunlik AI maslahati) |
 | Heatmap kalendar + kun BottomSheet | ✅ bor | `calendar_screen.dart` (worked/salary/izoh) |
 | Pastki navbar (5 tab)            | ✅ bor | `app_shell.dart` |
