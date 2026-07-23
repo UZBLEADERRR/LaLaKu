@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../i18n.dart';
 import '../models.dart';
 import '../services/auth_provider.dart';
+import '../services/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ui.dart';
 
-/// Kalendar — GitHub contribution graph uslubidagi heatmap + kun BottomSheet.
+/// Kalendar — heatmap yoki jadval ko'rinishi + kun BottomSheet.
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
   @override
@@ -21,6 +23,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   List<Workplace> _jobs = const [];
   Me? _me;
   bool _loading = true;
+  bool _tableView = false;
 
   @override
   void initState() {
@@ -31,18 +34,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     final api = context.read<AuthProvider>().api;
-    try {
-      final res = await Future.wait([
-        api.summary(_month.year, _month.month),
-        api.notes(_month.year, _month.month),
-        api.jobs(),
-        api.me(),
-      ]);
-      _summary = res[0] as MonthSummary;
-      _notes = res[1] as Map<String, String>;
-      _jobs = res[2] as List<Workplace>;
-      _me = res[3] as Me;
-    } catch (_) {}
+    // Har bir so'rovni alohida: bittasi xato bersa (masalan notes) kalendar baribir ishlaydi.
+    try { _summary = await api.summary(_month.year, _month.month); } catch (_) {}
+    try { _notes = await api.notes(_month.year, _month.month); } catch (_) { _notes = const {}; }
+    try { _jobs = await api.jobs(); } catch (_) {}
+    try { _me = await api.me(); } catch (_) {}
     if (mounted) setState(() => _loading = false);
   }
 
@@ -71,6 +67,66 @@ class _CalendarScreenState extends State<CalendarScreen> {
       net += (s.minutes / 60.0) * rate * (1 - tax / 100);
     }
     return net;
+  }
+
+  // Jadval ko'rinishi — ishlangan kunlar (Sana | Kun | Soat | Maosh)
+  Widget _tableCard() {
+    final dates = (_summary?.days.keys.toList() ?? [])..sort();
+    const dowShort = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya'];
+    int totalMin = 0;
+    double totalNet = 0;
+    final rows = <Widget>[];
+    Widget cell(String t, {int flex = 1, Color? color, FontWeight w = FontWeight.w600, TextAlign align = TextAlign.left}) => Expanded(
+          flex: flex,
+          child: Text(t, textAlign: align, style: TextStyle(fontSize: 13, fontWeight: w, color: color ?? AppColors.textPrimary)),
+        );
+    for (final d in dates) {
+      final day = _summary!.days[d]!;
+      if (day.minutes <= 0) continue;
+      final net = _dayNet(day);
+      totalMin += day.minutes;
+      totalNet += net;
+      final dt = DateTime.parse(d);
+      final dow = dowShort[(dt.weekday + 6) % 7];
+      rows.add(InkWell(
+        onTap: () => _openDay(d),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 11),
+          child: Row(children: [
+            cell('${dt.day}', flex: 2, w: FontWeight.w800),
+            cell(dow, flex: 2, color: AppColors.textSecondary),
+            cell(fmtHm(day.minutes), flex: 3, color: AppColors.success, align: TextAlign.right),
+            cell(net > 0 ? fmtWonShort(net) : '—', flex: 3, color: AppColors.primary, w: FontWeight.w800, align: TextAlign.right),
+          ]),
+        ),
+      ));
+      rows.add(const Divider(height: 1, color: AppColors.line));
+    }
+    return AppCard(
+      child: Column(
+        children: [
+          Row(children: [
+            cell(tr('col_date'), flex: 2, color: AppColors.textSecondary, w: FontWeight.w700),
+            cell(tr('col_day'), flex: 2, color: AppColors.textSecondary, w: FontWeight.w700),
+            cell(tr('worked'), flex: 3, color: AppColors.textSecondary, w: FontWeight.w700, align: TextAlign.right),
+            cell(tr('salary'), flex: 3, color: AppColors.textSecondary, w: FontWeight.w700, align: TextAlign.right),
+          ]),
+          const Divider(height: 12, color: AppColors.line),
+          if (rows.isEmpty)
+            Padding(padding: const EdgeInsets.all(Gap.md), child: Text(tr('fin_none'), style: const TextStyle(color: AppColors.textSecondary)))
+          else
+            ...rows,
+          if (rows.isNotEmpty) ...[
+            const SizedBox(height: Gap.sm),
+            Row(children: [
+              cell(tr('col_total'), flex: 4, w: FontWeight.w800),
+              cell(fmtHm(totalMin), flex: 3, color: AppColors.success, w: FontWeight.w800, align: TextAlign.right),
+              cell(totalNet > 0 ? fmtWonShort(totalNet) : '—', flex: 3, color: AppColors.primary, w: FontWeight.w800, align: TextAlign.right),
+            ]),
+          ],
+        ],
+      ),
+    );
   }
 
   void _openDay(String key) {
@@ -161,6 +217,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<SettingsProvider>();
     final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;
     final firstWeekday = (DateTime(_month.year, _month.month, 1).weekday + 6) % 7; // Mon=0
     const dows = ['Du', 'Se', 'Ch', 'Pa', 'Ju', 'Sh', 'Ya'];
@@ -173,6 +230,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
             Text('${_month.year}-${_month.month.toString().padLeft(2, '0')}',
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
             const Spacer(),
+            // Heatmap / jadval almashtirish
+            IconButton(
+              icon: Icon(_tableView ? Icons.grid_view_rounded : Icons.table_rows_rounded, color: AppColors.textSecondary),
+              tooltip: 'Ko\'rinish',
+              onPressed: () => setState(() => _tableView = !_tableView),
+            ),
             IconButton(
               icon: const Icon(Icons.chevron_left),
               onPressed: () => setState(() {
@@ -192,6 +255,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
         const SizedBox(height: Gap.sm),
         if (_loading)
           const Center(child: Padding(padding: EdgeInsets.all(Gap.xl), child: CircularProgressIndicator(color: AppColors.primary)))
+        else if (_tableView)
+          _tableCard()
         else
           AppCard(
             padding: const EdgeInsets.all(Gap.md),
