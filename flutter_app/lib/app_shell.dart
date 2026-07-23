@@ -33,18 +33,26 @@ class _AppShellState extends State<AppShell> {
     context.watch<SettingsProvider>(); // til o'zgarsa yorliqlar yangilanadi
     return Scaffold(
       body: SafeArea(bottom: false, child: IndexedStack(index: _index, children: _pages)),
-      bottomNavigationBar: NavigationBar(
-        backgroundColor: AppColors.surface,
-        indicatorColor: AppColors.primary.withOpacity(0.18),
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: [
-          NavigationDestination(icon: const Icon(Icons.home_outlined), selectedIcon: const Icon(Icons.home_rounded), label: tr('home')),
-          NavigationDestination(icon: const Icon(Icons.calendar_month_outlined), selectedIcon: const Icon(Icons.calendar_month_rounded), label: tr('calendar')),
-          NavigationDestination(icon: const Icon(Icons.account_balance_wallet_outlined), selectedIcon: const Icon(Icons.account_balance_wallet_rounded), label: tr('finance')),
-          NavigationDestination(icon: const Icon(Icons.auto_awesome_outlined), selectedIcon: const Icon(Icons.auto_awesome), label: tr('ai')),
-          NavigationDestination(icon: const Icon(Icons.person_outline_rounded), selectedIcon: const Icon(Icons.person_rounded), label: tr('profile')),
-        ],
+      // Pastki navbar telefon gesture/tugma bari ustida turishi uchun SafeArea(top:false).
+      // Container fon rangi eng past chekkagacha to'ldiradi.
+      bottomNavigationBar: Container(
+        color: AppColors.surface,
+        child: SafeArea(
+          top: false,
+          child: NavigationBar(
+            backgroundColor: AppColors.surface,
+            indicatorColor: AppColors.primary.withOpacity(0.18),
+            selectedIndex: _index,
+            onDestinationSelected: (i) => setState(() => _index = i),
+            destinations: [
+              NavigationDestination(icon: const Icon(Icons.home_outlined), selectedIcon: const Icon(Icons.home_rounded), label: tr('home')),
+              NavigationDestination(icon: const Icon(Icons.calendar_month_outlined), selectedIcon: const Icon(Icons.calendar_month_rounded), label: tr('calendar')),
+              NavigationDestination(icon: const Icon(Icons.account_balance_wallet_outlined), selectedIcon: const Icon(Icons.account_balance_wallet_rounded), label: tr('finance')),
+              NavigationDestination(icon: const Icon(Icons.auto_awesome_outlined), selectedIcon: const Icon(Icons.auto_awesome), label: tr('ai')),
+              NavigationDestination(icon: const Icon(Icons.person_outline_rounded), selectedIcon: const Icon(Icons.person_rounded), label: tr('profile')),
+            ],
+          ),
+        ),
       ),
     );
   }

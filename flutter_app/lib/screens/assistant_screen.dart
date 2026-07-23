@@ -192,7 +192,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
         // Kiritish
         Container(
-          padding: EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.md, Gap.sm + MediaQuery.of(context).padding.bottom),
+          padding: const EdgeInsets.fromLTRB(Gap.md, Gap.sm, Gap.md, Gap.sm),
           decoration: const BoxDecoration(border: Border(top: BorderSide(color: AppColors.line))),
           child: Row(
             children: [
