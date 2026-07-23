@@ -20,6 +20,7 @@ dependencies:
   flutter_timezone: ^3.0.1               # qurilma vaqt mintaqasini aniqlash
   fl_chart: ^0.68.0                       # moliya grafiklari (donut, bar)
   in_app_purchase: ^3.2.0                 # Google Play / App Store premium obuna
+  webview_flutter: ^4.7.0                 # oshxona (business) paneli — web ilova WebView'da
 
 dev_dependencies:
   flutter_lints: ^4.0.0

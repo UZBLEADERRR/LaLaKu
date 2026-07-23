@@ -40,6 +40,10 @@ class ApiClient {
   }
 
   bool get isLoggedIn => _token != null;
+  String? get token => _token;
+
+  /// Akkaunt almashtirishda faol token'ni o'rnatish.
+  Future<void> setToken(String? t) => _saveToken(t);
 
   Future<void> _saveToken(String? t) async {
     _token = t;
