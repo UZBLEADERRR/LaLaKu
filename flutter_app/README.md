@@ -18,7 +18,11 @@ flutter create . --org com.albafit --project-name albafit
 
 # 3) android/app/src/main/AndroidManifest.xml sozlash (pastdagi "Bildirishnomalar" bo'limi)
 
-# 4) Backend manzili: lib/config.dart -> apiBaseUrl (Railway URL)
+# 4) Backend manzili — ikki usul:
+#    a) lib/config.dart -> apiBaseUrl ni o'zgartiring (default qiymat), YOKI
+#    b) ilova ichida: Kirish ekrani → server ikonkasi (yoki Profil → Server manzili)
+#       → o'zingizning Railway domeningizni kiriting. ⚠️ Bu MUHIM: manzil noto'g'ri
+#       bo'lsa ma'lumot sinxronlanmaydi (ilova bo'sh ko'rinadi).
 flutter pub get
 
 # 5) Test / APK

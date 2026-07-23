@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../i18n.dart';
 import '../models.dart';
 import '../services/auth_provider.dart';
+import '../services/settings_provider.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ui.dart';
@@ -145,9 +147,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String _greeting() {
     final h = DateTime.now().hour;
-    if (h < 12) return 'Good morning 👋';
-    if (h < 18) return 'Good afternoon 👋';
-    return 'Good evening 👋';
+    if (h < 12) return '${tr('good_morning')} 👋';
+    if (h < 18) return '${tr('good_afternoon')} 👋';
+    return '${tr('good_evening')} 👋';
   }
 
   Future<void> _startWorkplace(Workplace j) async {
@@ -204,6 +206,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<SettingsProvider>(); // til/valyuta o'zgarsa yangilanadi
     if (_loading) return const DashboardSkeleton();
     final checkedIn = _status?.checkedIn ?? false;
     final breaking = _breakStart != null;
@@ -225,12 +228,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                StatTile(label: "Today's earnings", value: fmtWon(_todayEarnings), valueColor: AppColors.primary, valueSize: 34),
+                StatTile(label: tr('todays_earnings'), value: fmtWon(_todayEarnings), valueColor: AppColors.primary, valueSize: 34),
                 const SizedBox(height: Gap.lg),
                 Row(
                   children: [
-                    Expanded(child: StatTile(label: 'Worked', value: fmtClock(_todaySeconds), valueSize: 22)),
-                    Expanded(child: StatTile(label: 'This month', value: fmtHm(_summary?.totalMinutes ?? 0), valueSize: 22)),
+                    Expanded(child: StatTile(label: tr('worked'), value: fmtClock(_todaySeconds), valueSize: 22)),
+                    Expanded(child: StatTile(label: tr('this_month'), value: fmtHm(_summary?.totalMinutes ?? 0), valueSize: 22)),
                   ],
                 ),
               ],
@@ -250,7 +253,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(width: Gap.sm),
                     Expanded(
                       child: Text(
-                        checkedIn ? (_activeJob?.name ?? _status?.orgName ?? 'Ishda') : 'Hozir ishda emassiz',
+                        checkedIn ? (_activeJob?.name ?? _status?.orgName ?? tr('current_shift')) : tr('not_working'),
                         style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -283,7 +286,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       foregroundColor: checkedIn ? AppColors.danger : Colors.white,
                     ),
                     icon: Icon(checkedIn ? Icons.stop_rounded : Icons.play_arrow_rounded),
-                    label: Text(checkedIn ? 'Stop timer' : 'Start timer'),
+                    label: Text(checkedIn ? tr('stop_timer') : tr('start_timer')),
                     onPressed: () {
                       if (checkedIn) {
                         _stop();
@@ -302,9 +305,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: Gap.md),
 
-          const SectionHeader('Workplaces'),
+          SectionHeader(tr('workplaces')),
           if (_jobs.isEmpty)
-            const AppCard(child: Text('Hali ish joyi yo\'q.', style: TextStyle(color: AppColors.textSecondary)))
+            AppCard(child: Text(tr('no_workplaces'), style: const TextStyle(color: AppColors.textSecondary)))
           else
             ..._jobs.map((j) => Padding(
                   padding: const EdgeInsets.only(bottom: Gap.sm),

@@ -3,16 +3,44 @@ import 'package:intl/intl.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 
+// ---------------- Valyuta (global — sozlamalardan) ----------------
+/// Barcha summalar KRW'da saqlanadi. Money joriy valyuta va kursni ushlaydi;
+/// fmtWon/fmtWonShort avtomatik konvertatsiya qiladi (SettingsProvider yangilaydi).
+class Money {
+  static String symbol = '₩';
+  static double rate = 1; // 1 KRW = `rate` tanlangan valyuta
+  static void set(String sym, double r) {
+    symbol = sym;
+    rate = r > 0 ? r : 1;
+  }
+}
+
 // ---------------- Formatlash ----------------
-String fmtWon(num v) => '₩${NumberFormat('#,###').format(v.round())}';
+// Alifbo belgilari (so'm, сом) raqamdan keyin, ramzlar (₩ $ ¥) oldin.
+bool _symAfter(String s) => RegExp(r'^[A-Za-zА-Яа-я]').hasMatch(s);
+String _wrap(String num, String sign) {
+  final s = Money.symbol;
+  return _symAfter(s) ? '$sign$num $s' : '$sign$s$num';
+}
+
+String fmtWon(num v) {
+  final val = (v * Money.rate).round();
+  return _wrap(NumberFormat('#,###').format(val.abs()), v < 0 ? '−' : '');
+}
 
 /// Ixcham valyuta: ₩1.3M / ₩450K
 String fmtWonShort(num v) {
-  final a = v.abs();
-  final sign = v < 0 ? '-' : '';
-  if (a >= 1000000) return '$sign₩${(a / 1000000).toStringAsFixed(a >= 10000000 ? 0 : 1)}M';
-  if (a >= 1000) return '$sign₩${(a / 1000).toStringAsFixed(a >= 100000 ? 0 : 0)}K';
-  return '$sign₩${a.round()}';
+  final a = (v.abs()) * Money.rate;
+  final sign = v < 0 ? '−' : '';
+  String n;
+  if (a >= 1000000) {
+    n = '${(a / 1000000).toStringAsFixed(a >= 10000000 ? 0 : 1)}M';
+  } else if (a >= 1000) {
+    n = '${(a / 1000).toStringAsFixed(0)}K';
+  } else {
+    n = '${a.round()}';
+  }
+  return _wrap(n, sign);
 }
 
 String fmtHm(int minutes) {
