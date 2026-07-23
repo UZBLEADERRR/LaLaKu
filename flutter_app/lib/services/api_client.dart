@@ -82,8 +82,15 @@ class ApiClient {
   Future<void> _delete(String path) async => _parse(await http.delete(_u(path), headers: _headers));
 
   // ---- Auth ----
-  Future<Me> login({required String phone, required String birthdate}) async {
-    final j = await _post('/api/login', {'phone': phone, 'birthdate': birthdate});
+  /// Akkaunt bor-yo'qligini tekshirish: {exists, hasPassword, name}
+  Future<Map<String, dynamic>> lookup(String phone) => _post('/api/auth/lookup', {'phone': phone});
+
+  Future<Me> login({required String phone, String? birthdate, String? password}) async {
+    final j = await _post('/api/login', {
+      'phone': phone,
+      if (birthdate != null && birthdate.isNotEmpty) 'birthdate': birthdate,
+      if (password != null && password.isNotEmpty) 'password': password,
+    });
     await _saveToken(j['token'] as String?);
     return Me.fromJson(j);
   }
@@ -94,6 +101,7 @@ class ApiClient {
     required String birthdate,
     String type = 'worker',
     String? businessName,
+    String? password,
   }) async {
     final j = await _post('/api/register', {
       'name': name,
@@ -101,6 +109,7 @@ class ApiClient {
       'birthdate': birthdate,
       'type': type,
       if (businessName != null) 'businessName': businessName,
+      if (password != null && password.isNotEmpty) 'password': password,
     });
     await _saveToken(j['token'] as String?);
     return Me.fromJson(j);

@@ -174,6 +174,7 @@ async function initDb() {
     ALTER TABLE orgs ADD COLUMN IF NOT EXISTS allowed_ip TEXT;
     ALTER TABLE orgs ADD COLUMN IF NOT EXISTS auto_checkout BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE orgs ADD COLUMN IF NOT EXISTS share_token TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS has_password BOOLEAN NOT NULL DEFAULT FALSE;
     CREATE TABLE IF NOT EXISTS goals (
       id SERIAL PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -462,9 +463,9 @@ app.post('/api/register', wrap(async (req, res) => {
 
   const hash = await bcrypt.hash(password || birthdate, 10);
   const u = (await pool.query(
-    `INSERT INTO users (email, password_hash, name, type, phone, birthdate, paid_until)
-     VALUES ($1, $2, $3, $4, $5, $6, now() + ($7 || ' days')::interval) RETURNING *`,
-    [email, hash, name, type, phone || null, birthdate, CONFIG.trialDays]
+    `INSERT INTO users (email, password_hash, name, type, phone, birthdate, paid_until, has_password)
+     VALUES ($1, $2, $3, $4, $5, $6, now() + ($7 || ' days')::interval, $8) RETURNING *`,
+    [email, hash, name, type, phone || null, birthdate, CONFIG.trialDays, !!password]
   )).rows[0];
 
   if (type === 'business') {
@@ -478,6 +479,15 @@ app.post('/api/register', wrap(async (req, res) => {
 
   setSessionCookie(res, { t: 'user', id: u.id }, 60);
   res.json(await meJson(u));
+}));
+
+// Akkaunt bor-yo'qligini va parol talab qilinishini tekshirish (login oqimi uchun)
+app.post('/api/auth/lookup', wrap(async (req, res) => {
+  const phone = normPhone((req.body || {}).phone);
+  if (!phone) return fail(res, 400, "Telefon raqam noto'g'ri", 'BAD_PHONE');
+  const u = (await pool.query(`SELECT name, has_password FROM users WHERE phone = $1`, [phone])).rows[0];
+  if (!u) return res.json({ exists: false });
+  res.json({ exists: true, hasPassword: !!u.has_password, name: u.name });
 }));
 
 app.post('/api/login', wrap(async (req, res) => {
@@ -1794,7 +1804,7 @@ app.post('/api/admin/reset', requirePlatformAdmin, wrap(async (req, res) => {
 app.put('/api/admin/users/:id/password', requirePlatformAdmin, wrap(async (req, res) => {
   const password = String((req.body || {}).password || '');
   if (password.length < 6) return fail(res, 400, 'Parol kamida 6 belgi', 'PW_SHORT6');
-  const r = await pool.query(`UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING id`,
+  const r = await pool.query(`UPDATE users SET password_hash = $1, has_password = TRUE WHERE id = $2 RETURNING id`,
     [await bcrypt.hash(password, 10), parseInt(req.params.id, 10)]);
   if (!r.rows[0]) return fail(res, 404, 'Topilmadi', 'NOT_FOUND');
   res.json({ ok: true });
