@@ -1,5 +1,8 @@
 /// Backend JSON'iga mos data modellari.
 
+double _d(dynamic v) => (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0;
+int _i(dynamic v) => (v is num) ? v.toInt() : int.tryParse('$v') ?? 0;
+
 class Me {
   final int id;
   final String name;
@@ -24,15 +27,15 @@ class Me {
   });
 
   factory Me.fromJson(Map<String, dynamic> j) => Me(
-        id: j['id'] as int,
+        id: _i(j['id']),
         name: (j['name'] ?? '') as String,
         email: (j['email'] ?? '') as String,
         type: (j['type'] ?? 'worker') as String,
         phone: (j['phone'] ?? '') as String,
         active: (j['active'] ?? true) as bool,
-        daysLeft: (j['daysLeft'] ?? 0) as int,
-        hourlyRate: ((j['hourlyRate'] ?? 0) as num).toDouble(),
-        taxPercent: ((j['taxPercent'] ?? 0) as num).toDouble(),
+        daysLeft: _i(j['daysLeft']),
+        hourlyRate: _d(j['hourlyRate']),
+        taxPercent: _d(j['taxPercent']),
       );
 }
 
@@ -43,6 +46,7 @@ class WorkStatus {
   final String? sinceIso; // ISO — jonli taймер uchun
   final String? orgName;
   final int? jobId;
+  final int? orgId;
 
   WorkStatus({
     required this.checkedIn,
@@ -50,6 +54,7 @@ class WorkStatus {
     this.sinceIso,
     this.orgName,
     this.jobId,
+    this.orgId,
   });
 
   factory WorkStatus.fromJson(Map<String, dynamic> j) => WorkStatus(
@@ -57,8 +62,11 @@ class WorkStatus {
         since: j['since'] as String?,
         sinceIso: j['sinceIso'] as String?,
         orgName: j['orgName'] as String?,
-        jobId: j['jobId'] as int?,
+        jobId: j['jobId'] == null ? null : _i(j['jobId']),
+        orgId: j['orgId'] == null ? null : _i(j['orgId']),
       );
+
+  DateTime? get sinceTime => sinceIso == null ? null : DateTime.tryParse(sinceIso!);
 }
 
 /// Ish joyi (shaxsiy job yoki jamoa).
@@ -79,36 +87,160 @@ class Workplace {
     required this.payType,
   });
 
+  bool get isTeam => orgId != null;
+
   factory Workplace.fromJson(Map<String, dynamic> j) => Workplace(
-        id: j['id'] as int,
-        orgId: j['orgId'] as int?,
+        id: _i(j['id']),
+        orgId: j['orgId'] == null ? null : _i(j['orgId']),
         name: (j['name'] ?? '') as String,
-        rate: ((j['rate'] ?? 0) as num).toDouble(),
-        taxPercent: ((j['taxPercent'] ?? 0) as num).toDouble(),
+        rate: _d(j['rate']),
+        taxPercent: _d(j['taxPercent']),
         payType: (j['payType'] ?? 'hourly') as String,
       );
 }
 
-/// /api/my/summary — oylik jamlanma (kun -> daqiqa).
+/// Bir kundagi bitta ish sessiyasi.
+class WorkSession {
+  final int id;
+  final int? jobId;
+  final int? orgId;
+  final String inTime;
+  final String? outTime;
+  final int minutes;
+
+  WorkSession({required this.id, this.jobId, this.orgId, required this.inTime, this.outTime, required this.minutes});
+
+  factory WorkSession.fromJson(Map<String, dynamic> j) => WorkSession(
+        id: _i(j['id']),
+        jobId: j['jobId'] == null ? null : _i(j['jobId']),
+        orgId: j['orgId'] == null ? null : _i(j['orgId']),
+        inTime: (j['in'] ?? '') as String,
+        outTime: j['out'] as String?,
+        minutes: _i(j['minutes']),
+      );
+}
+
+/// Bir kun tafsiloti.
+class DayInfo {
+  final int minutes;
+  final bool open;
+  final List<WorkSession> sessions;
+  DayInfo({required this.minutes, required this.open, required this.sessions});
+}
+
+/// /api/my/summary — oylik jamlanma.
 class MonthSummary {
   final int totalMinutes;
   final int daysWorked;
-  final Map<String, int> minutesByDay; // "2026-07-22" -> 473
+  final Map<String, DayInfo> days;
 
-  MonthSummary({
-    required this.totalMinutes,
-    required this.daysWorked,
-    required this.minutesByDay,
-  });
+  MonthSummary({required this.totalMinutes, required this.daysWorked, required this.days});
+
+  int minutesOn(String date) => days[date]?.minutes ?? 0;
 
   factory MonthSummary.fromJson(Map<String, dynamic> j) {
-    final days = <String, int>{};
+    final days = <String, DayInfo>{};
     final raw = (j['days'] ?? {}) as Map<String, dynamic>;
-    raw.forEach((k, v) => days[k] = ((v['minutes'] ?? 0) as num).toInt());
+    raw.forEach((k, v) {
+      final m = v as Map<String, dynamic>;
+      final sessions = ((m['sessions'] ?? []) as List)
+          .map((e) => WorkSession.fromJson(e as Map<String, dynamic>))
+          .toList();
+      days[k] = DayInfo(minutes: _i(m['minutes']), open: (m['open'] ?? false) as bool, sessions: sessions);
+    });
     return MonthSummary(
-      totalMinutes: ((j['totalMinutes'] ?? 0) as num).toInt(),
-      daysWorked: ((j['daysWorked'] ?? 0) as num).toInt(),
-      minutesByDay: days,
+      totalMinutes: _i(j['totalMinutes']),
+      daysWorked: _i(j['daysWorked']),
+      days: days,
     );
   }
+}
+
+/// Moliyaviy yozuv (chiqim / qarz / daromad).
+class FinanceItem {
+  final int id;
+  final String kind; // expense | debt | income
+  final String title;
+  final double amount;
+  final double paidAmount;
+  final bool active;
+  final int? dueDay;
+  final String? dueDate;
+
+  FinanceItem({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.amount,
+    required this.paidAmount,
+    required this.active,
+    this.dueDay,
+    this.dueDate,
+  });
+
+  double get remaining => (amount - paidAmount).clamp(0, double.infinity).toDouble();
+
+  factory FinanceItem.fromJson(Map<String, dynamic> j) => FinanceItem(
+        id: _i(j['id']),
+        kind: (j['kind'] ?? 'expense') as String,
+        title: (j['title'] ?? '') as String,
+        amount: _d(j['amount']),
+        paidAmount: _d(j['paidAmount']),
+        active: (j['active'] ?? true) as bool,
+        dueDay: j['dueDay'] == null ? null : _i(j['dueDay']),
+        dueDate: j['dueDate'] as String?,
+      );
+}
+
+/// Moliyaviy maqsad.
+class Goal {
+  final int id;
+  final String title;
+  final double target;
+  final double saved;
+  Goal({required this.id, required this.title, required this.target, required this.saved});
+
+  double get progress => target > 0 ? (saved / target).clamp(0, 1).toDouble() : 0;
+
+  factory Goal.fromJson(Map<String, dynamic> j) => Goal(
+        id: _i(j['id']),
+        title: (j['title'] ?? '') as String,
+        target: _d(j['target']),
+        saved: _d(j['saved']),
+      );
+}
+
+/// AI maslahat bir donasi.
+class AdviceTip {
+  final String id;
+  final String icon;
+  final String severity; // good | warn | info
+  final String text;
+  AdviceTip({required this.id, required this.icon, required this.severity, required this.text});
+
+  factory AdviceTip.fromJson(Map<String, dynamic> j) => AdviceTip(
+        id: (j['id'] ?? '') as String,
+        icon: (j['icon'] ?? '💡') as String,
+        severity: (j['severity'] ?? 'info') as String,
+        text: (j['text'] ?? '') as String,
+      );
+}
+
+/// AI moliyaviy yordamchi javobi.
+class Advice {
+  final String greeting;
+  final String summary;
+  final List<AdviceTip> tips;
+  final bool aiPowered;
+  final Map<String, dynamic> stats;
+
+  Advice({required this.greeting, required this.summary, required this.tips, required this.aiPowered, required this.stats});
+
+  factory Advice.fromJson(Map<String, dynamic> j) => Advice(
+        greeting: (j['greeting'] ?? '') as String,
+        summary: (j['summary'] ?? '') as String,
+        aiPowered: (j['aiPowered'] ?? false) as bool,
+        stats: (j['stats'] ?? const <String, dynamic>{}) as Map<String, dynamic>,
+        tips: ((j['tips'] ?? []) as List).map((e) => AdviceTip.fromJson(e as Map<String, dynamic>)).toList(),
+      );
 }
