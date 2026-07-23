@@ -1612,11 +1612,48 @@
     </div>`;
   }
   function openAdviceSheet(advice) {
+    // AI chat oynasi — dastlab maslahatlar, keyin savol-javob
+    const history = [];
     const sheet = openSheet(`
-      <div class="sheet-head"><div class="sheet-title">✨ ${t('aiAssistant')}</div><button class="modal-close" id="sh-close">✕</button></div>
-      <p class="ai-summary" style="margin-bottom:14px">${esc(advice.summary)}</p>
-      ${(advice.tips || []).map((tp) => `<div class="ai-tip ${tp.severity}"><span>${tp.icon}</span><span>${esc(tp.text)}</span></div>`).join('')}`);
+      <div class="sheet-head"><div class="sheet-title">✨ ${t('aiAssistant')}${advice.aiPowered ? ' <span class="ai-badge">AI</span>' : ''}</div><button class="modal-close" id="sh-close">✕</button></div>
+      <div class="chat-area" id="chat-area">
+        <div class="chat-msg bot">${esc(advice.summary)}</div>
+        ${(advice.tips || []).map((tp) => `<div class="chat-msg bot">${tp.icon} ${esc(tp.text)}</div>`).join('')}
+      </div>
+      <div class="chat-input">
+        <input id="chat-in" placeholder="${t('aiAsk')}" autocomplete="off">
+        <button class="btn primary" id="chat-send">➤</button>
+      </div>`);
     sheet.querySelector('#sh-close').addEventListener('click', closeSheet);
+    const area = sheet.querySelector('#chat-area');
+    const input = sheet.querySelector('#chat-in');
+    const addMsg = (text, who) => {
+      const d = document.createElement('div');
+      d.className = `chat-msg ${who}`;
+      d.textContent = text;
+      area.appendChild(d);
+      area.scrollTop = area.scrollHeight;
+      return d;
+    };
+    const send = async () => {
+      const msg = input.value.trim();
+      if (!msg) return;
+      input.value = '';
+      addMsg(msg, 'user');
+      history.push({ role: 'user', text: msg });
+      const typing = addMsg('…', 'bot typing');
+      try {
+        const r = await api('/api/ai/chat', { method: 'POST', body: { message: msg, lang: LANG, history: history.slice(0, -1) } });
+        typing.remove();
+        addMsg(r.reply, 'bot');
+        history.push({ role: 'assistant', text: r.reply });
+      } catch (ex) {
+        typing.remove();
+        addMsg(terr(ex), 'bot');
+      }
+    };
+    sheet.querySelector('#chat-send').addEventListener('click', send);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
   }
 
   async function renderFinance() {

@@ -1238,6 +1238,20 @@ app.get('/api/ai/advice', requireUser, wrap(async (req, res) => {
   res.json(result);
 }));
 
+// AI chat — savol-javob (moliyaviy yordamchi)
+app.post('/api/ai/chat', requireUser, wrap(async (req, res) => {
+  const now = new Date();
+  const lang = ['uz', 'en', 'ko'].includes(req.body?.lang) ? req.body.lang : 'uz';
+  const message = String(req.body?.message || '').slice(0, 1000);
+  const history = Array.isArray(req.body?.history) ? req.body.history.slice(-12) : [];
+  if (!message.trim()) return fail(res, 400, "Bo'sh xabar", 'EMPTY');
+  const ctx = await financialContext(req.user, now.getFullYear(), now.getMonth() + 1);
+  let reply = await advisor.llmChat(ctx, history, message, lang);
+  let aiPowered = true;
+  if (!reply) { reply = advisor.chatReply(ctx, message, lang); aiPowered = false; }
+  res.json({ reply, aiPowered });
+}));
+
 // ================= OBUNA (Google Play / App Store) =================
 // Mahsulot -> obuna oylari
 const SUB_MONTHS = { albafit_premium_monthly: 1, albafit_premium_yearly: 12 };
