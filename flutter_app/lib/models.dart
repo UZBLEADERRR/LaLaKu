@@ -3,6 +3,19 @@
 double _d(dynamic v) => (v is num) ? v.toDouble() : double.tryParse('$v') ?? 0;
 int _i(dynamic v) => (v is num) ? v.toInt() : int.tryParse('$v') ?? 0;
 
+/// Jamoa a'zoligi (worker biror oshxonaga qo'shilgan).
+class Membership {
+  final int orgId;
+  final String orgName;
+  final String checkMode; // qr | button
+  Membership({required this.orgId, required this.orgName, required this.checkMode});
+  factory Membership.fromJson(Map<String, dynamic> j) => Membership(
+        orgId: _i(j['orgId']),
+        orgName: (j['orgName'] ?? '') as String,
+        checkMode: (j['checkMode'] ?? 'button') as String,
+      );
+}
+
 class Me {
   final int id;
   final String name;
@@ -13,6 +26,7 @@ class Me {
   final int daysLeft;
   final double hourlyRate;
   final double taxPercent;
+  final List<Membership> memberships;
 
   Me({
     required this.id,
@@ -24,6 +38,7 @@ class Me {
     required this.daysLeft,
     required this.hourlyRate,
     required this.taxPercent,
+    this.memberships = const [],
   });
 
   factory Me.fromJson(Map<String, dynamic> j) => Me(
@@ -36,6 +51,7 @@ class Me {
         daysLeft: _i(j['daysLeft']),
         hourlyRate: _d(j['hourlyRate']),
         taxPercent: _d(j['taxPercent']),
+        memberships: ((j['memberships'] ?? []) as List).map((e) => Membership.fromJson(e as Map<String, dynamic>)).toList(),
       );
 }
 
