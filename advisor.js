@@ -133,27 +133,41 @@ function generateAdvice(ctx, lang = 'uz') {
   };
 }
 
-// Ixtiyoriy: Claude API orqali tabiiy, shaxsiylashtirilgan xulosa.
-// ANTHROPIC_API_KEY yoʻq boʻlsa null qaytaradi (qoida-asosli javob ishlatiladi).
-async function llmSummary(ctx, lang = 'uz') {
+// ---------------- LLM provayderlari (Gemini afzal, Claude zaxira) ----------------
+// system: tizim ko'rsatmasi; messages: [{role:'user'|'assistant', content}]
+async function callGemini(system, messages) {
+  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!key) return null;
+  const model = process.env.GEMINI_MODEL || 'gemini-3-flash';
+  const contents = messages.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: String(m.content) }] }));
+  const body = { contents, generationConfig: { maxOutputTokens: 600, temperature: 0.7 } };
+  if (system) body.system_instruction = { parts: [{ text: system }] };
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const text = ((j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts) || [])
+      .map((p) => p.text || '').join('').trim();
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
+async function callClaude(system, messages) {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return null;
-  const langName = { uz: 'Uzbek', en: 'English', ko: 'Korean' }[lang] || 'Uzbek';
-  const prompt = `You are AlbaFit's friendly financial assistant for a part-time worker in Korea. `
-    + `Based on this data, write 2-3 short, warm, actionable sentences of financial advice in ${langName}. `
-    + `Be specific with numbers. Do not use markdown.\n\nData:\n${JSON.stringify(ctx, null, 2)}`;
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-      },
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
         model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
-        max_tokens: 300,
-        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 500,
+        ...(system ? { system } : {}),
+        messages: messages.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: String(m.content) })),
       }),
     });
     if (!r.ok) return null;
@@ -163,6 +177,19 @@ async function llmSummary(ctx, lang = 'uz') {
   } catch {
     return null;
   }
+}
+
+// Provayder-agnostik chaqiruv: avval Gemini, keyin Claude, aks holda null.
+async function callLLM(system, messages) {
+  return (await callGemini(system, messages)) || (await callClaude(system, messages));
+}
+
+// Ixtiyoriy: LLM orqali tabiiy, shaxsiylashtirilgan xulosa.
+async function llmSummary(ctx, lang = 'uz') {
+  const langName = { uz: 'Uzbek', en: 'English', ko: 'Korean' }[lang] || 'Uzbek';
+  const system = `You are AlbaFit's friendly financial assistant for a part-time worker in Korea. `
+    + `Reply in ${langName} only. 2-3 short, warm, actionable sentences with specific numbers. No markdown.`;
+  return callLLM(system, [{ role: 'user', content: `User's financial data (KRW):\n${JSON.stringify(ctx)}` }]);
 }
 
 // ---------------- CHAT (savol-javob) ----------------
@@ -254,10 +281,8 @@ function chatReply(ctx, message, lang = 'uz') {
   return c.fallback(fmtHours(ctx.thisMonth.minutes), fmtWon(ctx.thisMonth.net));
 }
 
-// Ixtiyoriy: Claude API bilan to'liq suhbat
+// Ixtiyoriy: LLM (Gemini/Claude) bilan to'liq suhbat
 async function llmChat(ctx, history, message, lang = 'uz') {
-  const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return null;
   const langName = { uz: 'Uzbek', en: 'English', ko: 'Korean' }[lang] || 'Uzbek';
   const system = `You are AlbaFit's friendly, concise financial assistant for a part-time worker in Korea. `
     + `Always reply in ${langName}. Be warm, specific with numbers, and practical. Keep replies to 1-4 sentences. No markdown. `
@@ -268,24 +293,7 @@ async function llmChat(ctx, history, message, lang = 'uz') {
     msgs.push({ role: h.role === 'user' ? 'user' : 'assistant', content: String(h.text) });
   }
   msgs.push({ role: 'user', content: String(message || '') });
-  try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({
-        model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        system,
-        messages: msgs,
-      }),
-    });
-    if (!r.ok) return null;
-    const j = await r.json();
-    const text = (j.content || []).map((x) => x.text || '').join('').trim();
-    return text || null;
-  } catch {
-    return null;
-  }
+  return callLLM(system, msgs);
 }
 
 module.exports = { generateAdvice, llmSummary, chatReply, llmChat, fmtWon, fmtHours };
