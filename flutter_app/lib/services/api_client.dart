@@ -42,19 +42,28 @@ class ApiClient {
         if (_token != null) 'Authorization': 'Bearer $_token',
       };
 
-  Future<Map<String, dynamic>> _decode(http.Response r) async {
-    final data = r.body.isEmpty ? <String, dynamic>{} : jsonDecode(r.body) as Map<String, dynamic>;
+  dynamic _parse(http.Response r) {
+    final body = r.body.isEmpty ? null : jsonDecode(r.body);
     if (r.statusCode >= 400) {
-      throw ApiException((data['error'] ?? 'Xatolik') as String, data['code'] as String?);
+      final m = body is Map ? body : const {};
+      throw ApiException((m['error'] ?? 'Xatolik') as String, m['code'] as String?);
     }
-    return data;
+    return body;
   }
 
   Future<Map<String, dynamic>> _get(String path) async =>
-      _decode(await http.get(_u(path), headers: _headers));
+      (_parse(await http.get(_u(path), headers: _headers)) as Map).cast<String, dynamic>();
+
+  Future<List<dynamic>> _getList(String path) async =>
+      (_parse(await http.get(_u(path), headers: _headers)) as List);
 
   Future<Map<String, dynamic>> _post(String path, [Map<String, dynamic>? body]) async =>
-      _decode(await http.post(_u(path), headers: _headers, body: jsonEncode(body ?? {})));
+      (_parse(await http.post(_u(path), headers: _headers, body: jsonEncode(body ?? {})) ) as Map).cast<String, dynamic>();
+
+  Future<Map<String, dynamic>> _put(String path, [Map<String, dynamic>? body]) async =>
+      (_parse(await http.put(_u(path), headers: _headers, body: jsonEncode(body ?? {})) ) as Map).cast<String, dynamic>();
+
+  Future<void> _delete(String path) async => _parse(await http.delete(_u(path), headers: _headers));
 
   // ---- Auth ----
   Future<Me> login({required String phone, required String birthdate}) async {
@@ -97,8 +106,7 @@ class ApiClient {
       MonthSummary.fromJson(await _get('/api/my/summary?year=$year&month=$month'));
 
   Future<List<Workplace>> jobs() async {
-    final r = await http.get(_u('/api/jobs'), headers: _headers);
-    final list = jsonDecode(r.body) as List<dynamic>;
+    final list = await _getList('/api/jobs');
     return list.map((e) => Workplace.fromJson(e as Map<String, dynamic>)).toList();
   }
 
@@ -112,4 +120,54 @@ class ApiClient {
     });
     return (j['action'] ?? '') as String; // "in" | "out"
   }
+
+  // ---- Moliya ----
+  Future<List<FinanceItem>> finance() async {
+    final list = await _getList('/api/finance');
+    return list.map((e) => FinanceItem.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> addFinance({required String kind, required String title, required num amount, int? dueDay, String? dueDate}) =>
+      _post('/api/finance', {'kind': kind, 'title': title, 'amount': amount, if (dueDay != null) 'dueDay': dueDay, if (dueDate != null) 'dueDate': dueDate});
+
+  Future<void> payFinance(int id, {num? amount, bool full = false}) =>
+      _post('/api/finance/$id/pay', {if (full) 'full': true, if (amount != null) 'amount': amount});
+
+  Future<void> deleteFinance(int id) => _delete('/api/finance/$id');
+
+  // ---- Maqsadlar ----
+  Future<List<Goal>> goals() async {
+    final list = await _getList('/api/goals');
+    return list.map((e) => Goal.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<void> addGoal(String title, num target) => _post('/api/goals', {'title': title, 'target': target});
+  Future<void> updateGoal(int id, {String? title, num? target}) => _put('/api/goals/$id', {if (title != null) 'title': title, if (target != null) 'target': target});
+  Future<void> addToGoal(int id, num amount) => _put('/api/goals/$id', {'add': amount});
+  Future<void> deleteGoal(int id) => _delete('/api/goals/$id');
+
+  // ---- Kun izohlari ----
+  Future<Map<String, String>> notes(int year, int month) async {
+    final list = await _getList('/api/my/notes?year=$year&month=$month');
+    final out = <String, String>{};
+    for (final e in list) {
+      final m = e as Map<String, dynamic>;
+      out[m['date'] as String] = m['text'] as String;
+    }
+    return out;
+  }
+
+  Future<void> setNote(String date, String text) => _put('/api/my/notes/$date', {'text': text});
+
+  // ---- Kun yozuvi (qo'lda qo'shish/tahrirlash) ----
+  Future<void> addEntry({required String date, required String inTime, String? outTime, int? jobId}) =>
+      _post('/api/my/entries', {'date': date, 'in': inTime, if (outTime != null) 'out': outTime, if (jobId != null) 'jobId': jobId});
+
+  Future<void> updateEntry(int id, {required String inTime, String? outTime}) =>
+      _put('/api/my/entries/$id', {'in': inTime, if (outTime != null) 'out': outTime});
+
+  Future<void> deleteEntry(int id) => _delete('/api/my/entries/$id');
+
+  // ---- AI moliyaviy yordamchi ----
+  Future<Advice> advice(String lang) async => Advice.fromJson(await _get('/api/ai/advice?lang=$lang'));
 }

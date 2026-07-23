@@ -112,7 +112,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               itemBuilder: (_, i) {
                 final d = i + 1;
                 final key = '${_month.year.toString().padLeft(4, '0')}-${_month.month.toString().padLeft(2, '0')}-${d.toString().padLeft(2, '0')}';
-                final minutes = _summary?.minutesByDay[key] ?? 0;
+                final minutes = _summary?.minutesOn(key) ?? 0;
                 return InkWell(
                   borderRadius: BorderRadius.circular(8),
                   onTap: () => _openDay(key, minutes),

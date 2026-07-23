@@ -1,9 +1,34 @@
-# AlbaFit — Flutter ilova (skeleton)
+# AlbaFit — Flutter ilova (iOS + Android)
 
-Bu — **AlbaFit** ilovasining Flutter (iOS + Android) skeletoni. Backend sifatida
-loyihaning mavjud Node/Express serveri ishlatiladi (o'zgarmaydi). Bu skeleton
-**dizayn tizimi + arxitektura + asosiy ekranlarni** o'z ichiga oladi; qolgan
-funksiyalar bosqichma-bosqich to'ldiriladi.
+**AlbaFit** — part-time ishchilar uchun ish vaqti va maosh menejeri. Backend
+sifatida loyihaning mavjud Node/Express serveri ishlatiladi (o'zgarmaydi).
+Professional dizayn tizimi, jonli maosh hisoblagichi, AI moliyaviy yordamchi,
+grafiklar va Google Play obunasi bilan.
+
+## APK yasash (Android) — qadamma-qadam
+
+```bash
+# 1) Flutter SDK + Android Studio o'rnatilgan bo'lsin
+flutter doctor            # hammasi ✓ bo'lsin
+flutter doctor --android-licenses   # "y"
+
+# 2) Repo va platforma papkalarini yaratish (android/ bu repo'da yo'q)
+cd flutter_app
+flutter create . --org com.albafit --project-name albafit
+
+# 3) android/app/src/main/AndroidManifest.xml ichida <application dan OLDIN:
+#    <uses-permission android:name="android.permission.INTERNET"/>
+
+# 4) Backend manzili: lib/config.dart -> apiBaseUrl (Railway URL)
+flutter pub get
+
+# 5) Test / APK
+flutter run                       # ulangan telefon yoki emulyatorda
+flutter build apk --release       # -> build/app/outputs/flutter-apk/app-release.apk
+```
+
+> iOS build faqat macOS + Xcode'da. Store premium uchun Apple/Google developer
+> akkaunti va native billing kerak (pastda).
 
 > Eslatma: iOS build faqat macOS + Xcode'da bo'ladi. Store'da premium (obuna)
 > uchun Apple/Google developer akkauntlari va native billing kerak (pastda).
@@ -87,10 +112,12 @@ Autentifikatsiya: `/api/login` (yoki `/api/register`) javobidagi `token` —
 | Funksiya                         | Holat  | Qayerda |
 |----------------------------------|--------|---------|
 | Jonli maosh hisoblagichi         | ✅ bor | `dashboard_screen.dart` (Timer.periodic) |
-| Shift start/stop                 | ✅ bor | `dashboard_screen.dart` + `api.punch` |
-| Heatmap kalendar + BottomSheet   | ✅ bor | `calendar_screen.dart` |
+| Shift start/stop + ish joyi tanlash | ✅ bor | `dashboard_screen.dart` + `api.punch` |
+| Break timer (tanaffus)           | ✅ bor | `dashboard_screen.dart` (lokal state) |
+| Skeleton loading + animatsiya    | ✅ bor | `widgets/ui.dart` |
+| AI moliyaviy yordamchi (API)     | ✅ bor | `/api/ai/advice` (PR keyingi ekran) |
+| Heatmap kalendar + BottomSheet   | 🔶 asosiy | `calendar_screen.dart` (to'liq keyingi PR) |
 | Pastki navbar                    | ✅ bor | `app_shell.dart` |
-| Break timer                      | ⬜ TODO | yangi ekran + lokal state |
 | Monthly prediction / Overtime / Tax | ⬜ TODO | dashboard/analytics hisob-kitob |
 | Finance grafiklari (donut/bar)   | ⬜ TODO | `finance_screen.dart` + `fl_chart` |
 | Goals / Statistics / Analytics   | ⬜ TODO | yangi ekranlar |
