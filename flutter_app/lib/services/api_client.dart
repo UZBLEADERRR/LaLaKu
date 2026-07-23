@@ -126,6 +126,15 @@ class ApiClient {
     return list.map((e) => Workplace.fromJson(e as Map<String, dynamic>)).toList();
   }
 
+  /// Shaxsiy ish joyi qo'shish.
+  Future<void> addJob({required String name, String payType = 'hourly', required num rate, num tax = 0}) =>
+      _post('/api/jobs', {'name': name, 'payType': payType, 'rate': rate, 'taxPercent': tax});
+
+  Future<void> updateJob(int id, {required String name, String payType = 'hourly', required num rate, num tax = 0}) =>
+      _put('/api/jobs/$id', {'name': name, 'payType': payType, 'rate': rate, 'taxPercent': tax});
+
+  Future<void> deleteJob(int id) => _delete('/api/jobs/$id');
+
   /// Boshlash/tugatish. Ochiq yozuv bo'lsa — checkout (bo'sh body).
   Future<String> punch({int? jobId, int? orgId, double? lat, double? lng}) async {
     final j = await _post('/api/punch', {

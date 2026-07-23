@@ -26,7 +26,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Timer? _ticker;
   bool _loading = true;
 
-  // Tanaffus holati (klientda, shared_preferences)
   DateTime? _breakStart;
   int _breakTotalSec = 0;
 
@@ -51,12 +50,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final api = context.read<AuthProvider>().api;
     final now = DateTime.now();
     try {
-      final results = await Future.wait([
-        api.me(),
-        api.status(),
-        api.summary(now.year, now.month),
-        api.jobs(),
-      ]);
+      final results = await Future.wait([api.me(), api.status(), api.summary(now.year, now.month), api.jobs()]);
       final sp = await SharedPreferences.getInstance();
       final me = results[0] as Me;
       final raw = sp.getString('break_${me.id}');
@@ -104,20 +98,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return '${n.year.toString().padLeft(4, '0')}-${n.month.toString().padLeft(2, '0')}-${n.day.toString().padLeft(2, '0')}';
   }
 
-  int get _todaySeconds {
-    var base = (_summary?.minutesOn(_todayKey) ?? 0) * 60;
-    final since = _status?.sinceTime;
-    if ((_status?.checkedIn ?? false) && since != null) {
-      // minutesOn ochiq sessiyani ham hisoblaydi, shuning uchun soniyalar aniqligi uchun qayta hisoblaymiz
-      base = _closedTodaySec + DateTime.now().difference(since).inSeconds;
-    }
-    return base;
-  }
-
   int get _closedTodaySec {
     final d = _summary?.days[_todayKey];
     if (d == null) return 0;
     return d.sessions.where((s) => s.outTime != null).fold(0, (a, s) => a + s.minutes * 60);
+  }
+
+  int get _todaySeconds {
+    var base = (_summary?.minutesOn(_todayKey) ?? 0) * 60;
+    final since = _status?.sinceTime;
+    if ((_status?.checkedIn ?? false) && since != null) {
+      base = _closedTodaySec + DateTime.now().difference(since).inSeconds;
+    }
+    return base;
   }
 
   Workplace? get _activeJob {
@@ -143,7 +136,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return (_rate * (1 - tax / 100)) / 3600;
   }
 
-  double get _todayEarnings => (_todaySeconds) * _liveRatePerSec;
+  double get _todayEarnings => _todaySeconds * _liveRatePerSec;
 
   String _greeting() {
     final h = DateTime.now().hour;
@@ -153,9 +146,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _startWorkplace(Workplace j) async {
-    final api = context.read<AuthProvider>().api;
     try {
-      await api.punch(jobId: j.orgId == null ? j.id : null, orgId: j.orgId);
+      await context.read<AuthProvider>().api.punch(jobId: j.orgId == null ? j.id : null, orgId: j.orgId);
       await _load();
     } catch (e) {
       _snack('$e');
@@ -163,9 +155,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _stop() async {
-    final api = context.read<AuthProvider>().api;
     try {
-      await api.punch();
+      await context.read<AuthProvider>().api.punch();
       setState(() {
         _breakStart = null;
         _breakTotalSec = 0;
@@ -184,15 +175,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _pickWorkplace() {
     showModalBottomSheet(
       context: context,
+      backgroundColor: AppColors.surface,
       builder: (_) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(padding: EdgeInsets.all(Gap.md), child: Label('Boshlash uchun ish joyini tanlang')),
+            Padding(padding: const EdgeInsets.all(Gap.md), child: Label(tr('pick_workplace'))),
             ..._jobs.map((j) => ListTile(
-                  leading: CircleAvatar(backgroundColor: AppColors.primary.withOpacity(0.18), child: Text(j.isTeam ? '🍽' : (j.name.isNotEmpty ? j.name[0] : '?'))),
+                  leading: CircleAvatar(backgroundColor: AppColors.primary.withOpacity(0.18), child: Text(j.isTeam ? '🍽' : (j.name.isNotEmpty ? j.name[0].toUpperCase() : '?'))),
                   title: Text(j.name),
-                  subtitle: Text('${fmtWon(j.rate)}/hr'),
+                  subtitle: Text('${fmtWon(j.rate)}/${j.payType == 'daily' ? tr('per_day') : tr('per_hour')}'),
                   onTap: () {
                     Navigator.pop(context);
                     _startWorkplace(j);
@@ -204,9 +196,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  /// Ish joyi qo'shish oynasi.
+  Future<void> _addWorkplace() async {
+    final nameC = TextEditingController();
+    final rateC = TextEditingController();
+    final taxC = TextEditingController(text: '0');
+    String payType = 'hourly';
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: AppColors.surface,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheet) => Padding(
+          padding: EdgeInsets.fromLTRB(Gap.lg, Gap.lg, Gap.lg, Gap.lg + MediaQuery.of(ctx).viewInsets.bottom),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(tr('add_workplace'), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+              const SizedBox(height: Gap.md),
+              TextField(controller: nameC, decoration: InputDecoration(hintText: tr('job_name'))),
+              const SizedBox(height: Gap.md),
+              SegmentedButton<String>(
+                segments: [
+                  ButtonSegment(value: 'hourly', label: Text(tr('hourly'))),
+                  ButtonSegment(value: 'daily', label: Text(tr('daily'))),
+                ],
+                selected: {payType},
+                onSelectionChanged: (s) => setSheet(() => payType = s.first),
+              ),
+              const SizedBox(height: Gap.md),
+              Row(
+                children: [
+                  Expanded(child: TextField(controller: rateC, keyboardType: TextInputType.number, decoration: InputDecoration(hintText: tr('rate')))),
+                  const SizedBox(width: Gap.md),
+                  SizedBox(width: 110, child: TextField(controller: taxC, keyboardType: TextInputType.number, decoration: InputDecoration(hintText: tr('tax')))),
+                ],
+              ),
+              const SizedBox(height: Gap.lg),
+              ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(tr('save'))),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (ok == true && nameC.text.trim().isNotEmpty) {
+      final rate = num.tryParse(rateC.text.trim()) ?? 0;
+      final tax = num.tryParse(taxC.text.trim()) ?? 0;
+      try {
+        await context.read<AuthProvider>().api.addJob(name: nameC.text.trim(), payType: payType, rate: rate, tax: tax);
+        await _load();
+      } catch (e) {
+        _snack('$e');
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    context.watch<SettingsProvider>(); // til/valyuta o'zgarsa yangilanadi
+    context.watch<SettingsProvider>();
     if (_loading) return const DashboardSkeleton();
     final checkedIn = _status?.checkedIn ?? false;
     final breaking = _breakStart != null;
@@ -222,17 +270,42 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Text(_me?.name ?? '', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
           const SizedBox(height: Gap.lg),
 
-          // Jonli maosh + soat
-          AppCard(
+          // Premium jonli maosh hero
+          Container(
             padding: const EdgeInsets.all(Gap.lg),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: checkedIn
+                    ? [const Color(0xFF2A2350), const Color(0xFF171A22)]
+                    : [const Color(0xFF20232E), const Color(0xFF171A22)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(Gap.radius),
+              border: Border.all(color: checkedIn ? AppColors.primary.withOpacity(0.35) : AppColors.line),
+              boxShadow: checkedIn
+                  ? [BoxShadow(color: AppColors.primary.withOpacity(0.25), blurRadius: 30, offset: const Offset(0, 12))]
+                  : const [BoxShadow(color: Color(0x33000000), blurRadius: 22, offset: Offset(0, 8))],
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                StatTile(label: tr('todays_earnings'), value: fmtWon(_todayEarnings), valueColor: AppColors.primary, valueSize: 34),
+                Row(
+                  children: [
+                    Label(tr('todays_earnings')),
+                    const Spacer(),
+                    if (checkedIn) _LiveDot(active: true),
+                  ],
+                ),
+                const SizedBox(height: Gap.xs),
+                Text(fmtWon(_todayEarnings),
+                    style: const TextStyle(fontSize: 38, fontWeight: FontWeight.w800, letterSpacing: -1, color: AppColors.primary, fontFeatures: [FontFeature.tabularFigures()])),
                 const SizedBox(height: Gap.lg),
                 Row(
                   children: [
                     Expanded(child: StatTile(label: tr('worked'), value: fmtClock(_todaySeconds), valueSize: 22)),
+                    Container(width: 1, height: 36, color: AppColors.line),
+                    const SizedBox(width: Gap.md),
                     Expanded(child: StatTile(label: tr('this_month'), value: fmtHm(_summary?.totalMinutes ?? 0), valueSize: 22)),
                   ],
                 ),
@@ -259,22 +332,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
                     if (checkedIn && _status?.since != null)
-                      Text('Start ${_status!.since}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+                      Text('${_status!.since}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
                   ],
                 ),
                 if (checkedIn) ...[
                   const SizedBox(height: Gap.md),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      PillButton(
-                        label: breaking ? 'Break ${fmtClock(breakSec)}' : (breakSec > 0 ? 'Break · ${fmtClock(breakSec)}' : 'Break'),
-                        icon: breaking ? Icons.play_arrow_rounded : Icons.coffee_rounded,
-                        color: breaking ? AppColors.warning.withOpacity(0.18) : AppColors.surface2,
-                        textColor: breaking ? AppColors.warning : AppColors.textPrimary,
-                        onTap: _toggleBreak,
-                      ),
-                    ],
+                  PillButton(
+                    label: breaking ? '${tr('break')} ${fmtClock(breakSec)}' : (breakSec > 0 ? '${tr('break')} · ${fmtClock(breakSec)}' : tr('break')),
+                    icon: breaking ? Icons.play_arrow_rounded : Icons.coffee_rounded,
+                    color: breaking ? AppColors.warning.withOpacity(0.18) : AppColors.surface2,
+                    textColor: breaking ? AppColors.warning : AppColors.textPrimary,
+                    onTap: _toggleBreak,
                   ),
                 ],
                 const SizedBox(height: Gap.md),
@@ -291,7 +359,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       if (checkedIn) {
                         _stop();
                       } else if (_jobs.isEmpty) {
-                        _snack('Avval ish joyi qo\'shing');
+                        _addWorkplace();
                       } else if (_jobs.length == 1) {
                         _startWorkplace(_jobs.first);
                       } else {
@@ -305,9 +373,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: Gap.md),
 
-          SectionHeader(tr('workplaces')),
+          SectionHeader(
+            tr('workplaces'),
+            trailing: PillButton(label: '＋', icon: Icons.add_rounded, color: AppColors.primary.withOpacity(0.16), textColor: AppColors.primary, onTap: _addWorkplace),
+          ),
           if (_jobs.isEmpty)
-            AppCard(child: Text(tr('no_workplaces'), style: const TextStyle(color: AppColors.textSecondary)))
+            _EmptyWorkplaces(onAdd: _addWorkplace)
           else
             ..._jobs.map((j) => Padding(
                   padding: const EdgeInsets.only(bottom: Gap.sm),
@@ -317,8 +388,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         CircleAvatar(
                           radius: 22,
                           backgroundColor: AppColors.primary.withOpacity(0.18),
-                          child: Text(j.isTeam ? '🍽' : (j.name.isNotEmpty ? j.name[0].toUpperCase() : '?'),
-                              style: const TextStyle(fontWeight: FontWeight.w800)),
+                          child: Text(j.isTeam ? '🍽' : (j.name.isNotEmpty ? j.name[0].toUpperCase() : '?'), style: const TextStyle(fontWeight: FontWeight.w800)),
                         ),
                         const SizedBox(width: Gap.md),
                         Expanded(
@@ -327,20 +397,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             children: [
                               Text(j.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5)),
                               const SizedBox(height: 2),
-                              Text('${fmtWon(j.rate)}/${j.payType == 'daily' ? 'day' : 'hr'}',
-                                  style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+                              Text('${fmtWon(j.rate)}/${j.payType == 'daily' ? tr('per_day') : tr('per_hour')}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
                             ],
                           ),
                         ),
                         if (!checkedIn)
-                          IconButton.filledTonal(
-                            icon: const Icon(Icons.play_arrow_rounded),
-                            onPressed: () => _startWorkplace(j),
-                          ),
+                          IconButton.filledTonal(icon: const Icon(Icons.play_arrow_rounded), onPressed: () => _startWorkplace(j)),
                       ],
                     ),
                   ),
                 )),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyWorkplaces extends StatelessWidget {
+  final VoidCallback onAdd;
+  const _EmptyWorkplaces({required this.onAdd});
+  @override
+  Widget build(BuildContext context) {
+    return DottedCard(
+      child: Column(
+        children: [
+          const Icon(Icons.work_outline_rounded, size: 36, color: AppColors.textSecondary),
+          const SizedBox(height: Gap.sm),
+          Text(tr('no_workplaces'), style: const TextStyle(color: AppColors.textSecondary)),
+          const SizedBox(height: Gap.md),
+          ElevatedButton.icon(onPressed: onAdd, icon: const Icon(Icons.add_rounded), label: Text(tr('add_workplace'))),
         ],
       ),
     );
@@ -364,12 +449,7 @@ class _LiveDotState extends State<_LiveDot> with SingleTickerProviderStateMixin 
 
   @override
   Widget build(BuildContext context) {
-    if (!widget.active) {
-      return const Icon(Icons.circle, size: 10, color: AppColors.textSecondary);
-    }
-    return FadeTransition(
-      opacity: Tween(begin: 0.4, end: 1.0).animate(_c),
-      child: const Icon(Icons.circle, size: 10, color: AppColors.success),
-    );
+    if (!widget.active) return const Icon(Icons.circle, size: 10, color: AppColors.textSecondary);
+    return FadeTransition(opacity: Tween(begin: 0.4, end: 1.0).animate(_c), child: const Icon(Icons.circle, size: 10, color: AppColors.success));
   }
 }
