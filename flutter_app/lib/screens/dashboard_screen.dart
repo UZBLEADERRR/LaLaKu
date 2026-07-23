@@ -49,31 +49,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _load() async {
     final api = context.read<AuthProvider>().api;
     final now = DateTime.now();
-    try {
-      final results = await Future.wait([api.me(), api.status(), api.summary(now.year, now.month), api.jobs()]);
+    // Har bir so'rovni alohida: bittasi xato bersa qolganlari baribir ko'rinadi.
+    Me? me;
+    WorkStatus? st;
+    MonthSummary? sm;
+    List<Workplace> jobs = const [];
+    try { me = await api.me(); } catch (_) {}
+    try { st = await api.status(); } catch (_) {}
+    try { sm = await api.summary(now.year, now.month); } catch (_) {}
+    try { jobs = await api.jobs(); } catch (_) {}
+
+    DateTime? bs;
+    int bt = 0;
+    if (me != null) {
       final sp = await SharedPreferences.getInstance();
-      final me = results[0] as Me;
       final raw = sp.getString('break_${me.id}');
-      DateTime? bs;
-      int bt = 0;
       if (raw != null) {
         final parts = raw.split('|');
         bt = int.tryParse(parts[0]) ?? 0;
         if (parts.length > 1 && parts[1].isNotEmpty) bs = DateTime.tryParse(parts[1]);
       }
-      if (!mounted) return;
-      setState(() {
-        _me = me;
-        _status = results[1] as WorkStatus;
-        _summary = results[2] as MonthSummary;
-        _jobs = results[3] as List<Workplace>;
-        _breakStart = bs;
-        _breakTotalSec = bt;
-        _loading = false;
-      });
-    } catch (_) {
-      if (mounted) setState(() => _loading = false);
     }
+    if (!mounted) return;
+    setState(() {
+      if (me != null) _me = me;
+      if (st != null) _status = st;
+      if (sm != null) _summary = sm;
+      _jobs = jobs;
+      _breakStart = bs;
+      _breakTotalSec = bt;
+      _loading = false;
+    });
   }
 
   Future<void> _saveBreak() async {
@@ -113,6 +119,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return base;
   }
 
+  /// Ko'rsatiladigan ish joylari: jamoalar (a'zoliklar) + shaxsiy ishlar.
+  List<_WP> get _wps {
+    final teams = (_me?.memberships ?? const <Membership>[]).map((m) {
+      Workplace? tj;
+      for (final j in _jobs) {
+        if (j.orgId == m.orgId) {
+          tj = j;
+          break;
+        }
+      }
+      return _WP(name: m.orgName, rate: tj?.rate ?? 0, payType: tj?.payType ?? 'hourly', isTeam: true, orgId: m.orgId, checkMode: m.checkMode);
+    }).toList();
+    final personal = _jobs.where((j) => j.orgId == null).map((j) => _WP(name: j.name, rate: j.rate, payType: j.payType, isTeam: false, jobId: j.id)).toList();
+    return [...teams, ...personal];
+  }
+
   Workplace? get _activeJob {
     final jid = _status?.jobId;
     final oid = _status?.orgId;
@@ -145,9 +167,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return '${tr('good_evening')} 👋';
   }
 
-  Future<void> _startWorkplace(Workplace j) async {
+  Future<void> _startWorkplace(_WP w) async {
     try {
-      await context.read<AuthProvider>().api.punch(jobId: j.orgId == null ? j.id : null, orgId: j.orgId);
+      await context.read<AuthProvider>().api.punch(jobId: w.isTeam ? null : w.jobId, orgId: w.isTeam ? w.orgId : null);
       await _load();
     } catch (e) {
       _snack('$e');
@@ -181,10 +203,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Padding(padding: const EdgeInsets.all(Gap.md), child: Label(tr('pick_workplace'))),
-            ..._jobs.map((j) => ListTile(
+            ..._wps.map((j) => ListTile(
                   leading: CircleAvatar(backgroundColor: AppColors.primary.withOpacity(0.18), child: Text(j.isTeam ? '🍽' : (j.name.isNotEmpty ? j.name[0].toUpperCase() : '?'))),
                   title: Text(j.name),
-                  subtitle: Text('${fmtWon(j.rate)}/${j.payType == 'daily' ? tr('per_day') : tr('per_hour')}'),
+                  subtitle: Text(j.rate > 0 ? '${fmtWon(j.rate)}/${j.payType == 'daily' ? tr('per_day') : tr('per_hour')}' : (j.isTeam ? 'Jamoa' : '')),
                   onTap: () {
                     Navigator.pop(context);
                     _startWorkplace(j);
@@ -356,12 +378,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     icon: Icon(checkedIn ? Icons.stop_rounded : Icons.play_arrow_rounded),
                     label: Text(checkedIn ? tr('stop_timer') : tr('start_timer')),
                     onPressed: () {
+                      final wps = _wps;
                       if (checkedIn) {
                         _stop();
-                      } else if (_jobs.isEmpty) {
+                      } else if (wps.isEmpty) {
                         _addWorkplace();
-                      } else if (_jobs.length == 1) {
-                        _startWorkplace(_jobs.first);
+                      } else if (wps.length == 1) {
+                        _startWorkplace(wps.first);
                       } else {
                         _pickWorkplace();
                       }
@@ -377,10 +400,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
             tr('workplaces'),
             trailing: PillButton(label: '＋', icon: Icons.add_rounded, color: AppColors.primary.withOpacity(0.16), textColor: AppColors.primary, onTap: _addWorkplace),
           ),
-          if (_jobs.isEmpty)
+          if (_wps.isEmpty)
             _EmptyWorkplaces(onAdd: _addWorkplace)
           else
-            ..._jobs.map((j) => Padding(
+            ..._wps.map((j) => Padding(
                   padding: const EdgeInsets.only(bottom: Gap.sm),
                   child: AppCard(
                     child: Row(
@@ -395,9 +418,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(j.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5)),
+                              Row(
+                                children: [
+                                  Flexible(child: Text(j.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15.5))),
+                                  if (j.isTeam) Container(
+                                    margin: const EdgeInsets.only(left: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.16), borderRadius: BorderRadius.circular(6)),
+                                    child: const Text('Jamoa', style: TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.w800)),
+                                  ),
+                                ],
+                              ),
                               const SizedBox(height: 2),
-                              Text('${fmtWon(j.rate)}/${j.payType == 'daily' ? tr('per_day') : tr('per_hour')}', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+                              Text(j.rate > 0 ? '${fmtWon(j.rate)}/${j.payType == 'daily' ? tr('per_day') : tr('per_hour')}' : '—', style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
                             ],
                           ),
                         ),
@@ -411,6 +444,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
     );
   }
+}
+
+/// Ko'rsatiladigan ish joyi (jamoa yoki shaxsiy) — birlashtirilgan.
+class _WP {
+  final String name;
+  final double rate;
+  final String payType;
+  final bool isTeam;
+  final int? jobId;
+  final int? orgId;
+  final String checkMode;
+  _WP({required this.name, required this.rate, required this.payType, required this.isTeam, this.jobId, this.orgId, this.checkMode = 'button'});
 }
 
 class _EmptyWorkplaces extends StatelessWidget {
