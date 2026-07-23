@@ -9,6 +9,7 @@ import '../theme/app_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ui.dart';
 import 'paywall_screen.dart';
+import 'web_panel_screen.dart';
 
 /// Profil — ishlaydigan sozlamalar: Server, Til, Valyuta, Bildirishnoma, Premium.
 class ProfileScreen extends StatelessWidget {
@@ -79,10 +80,43 @@ class ProfileScreen extends StatelessWidget {
         ),
         const SizedBox(height: Gap.lg),
 
+        // Akkauntlar
+        SectionHeader(tr('accounts'), trailing: PillButton(label: '＋', icon: Icons.person_add_alt_1_rounded, color: AppColors.primary.withOpacity(0.16), textColor: AppColors.primary, onTap: () => auth.addAccountFlow())),
         AppCard(
           padding: EdgeInsets.zero,
           child: Column(
             children: [
+              for (int i = 0; i < auth.accounts.length; i++) ...[
+                if (i > 0) _divider(),
+                ListTile(
+                  leading: CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppColors.primary.withOpacity(0.18),
+                    child: Text(
+                      (auth.accounts[i]['type'] == 'business') ? '🍽' : ((auth.accounts[i]['name'] as String?)?.isNotEmpty == true ? (auth.accounts[i]['name'] as String)[0].toUpperCase() : '?'),
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                    ),
+                  ),
+                  title: Text('${auth.accounts[i]['name'] ?? ''}', style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text(auth.accounts[i]['type'] == 'business' ? '🍽 ${tr('kitchen_panel').split(' ').first}' : ''),
+                  trailing: i == auth.activeIndex
+                      ? const Text('✓', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.w800, fontSize: 18))
+                      : TextButton(onPressed: () => auth.switchAccount(i), child: Text(tr('switch_acc'))),
+                ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: Gap.lg),
+
+        AppCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              _row(Icons.storefront_outlined, tr('kitchen_panel'), '', () {
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => WebPanelScreen(url: settings.api.baseUrl, title: tr('kitchen_panel'))));
+              }),
+              _divider(),
               _row(Icons.language, tr('language'), I18n.supported[settings.lang] ?? settings.lang, () => _pickLanguage(context, settings)),
               _divider(),
               _row(Icons.currency_exchange, tr('currency'), settings.currency, () => _pickCurrency(context, settings)),

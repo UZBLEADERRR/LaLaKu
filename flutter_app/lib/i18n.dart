@@ -43,6 +43,7 @@ class I18n {
       'forgot_password': 'Parolni unutdingizmi?', 'forgot_help': "Yordam markaziga murojaat qiling — administrator parolingizni tiklaydi.",
       'set_password_hint': "Xohlasangiz parol qo'ying (keyingi kirishlar uchun).",
       'back': 'Orqaga', 'name_required': 'Ismingizni kiriting', 'phone_required': 'Telefon raqamni kiriting',
+      'accounts': 'Akkauntlar', 'add_account': "Akkaunt qo'shish", 'switch_acc': "O'tish", 'active_acc': 'Faol', 'kitchen_panel': 'Oshxona paneli (web)',
     },
     'en': {
       'home': 'Home', 'calendar': 'Calendar', 'finance': 'Finance', 'ai': 'AI', 'profile': 'Profile',
@@ -79,6 +80,7 @@ class I18n {
       'forgot_password': 'Forgot password?', 'forgot_help': 'Contact the help center — an admin will reset your password.',
       'set_password_hint': 'Set a password if you like (for future logins).',
       'back': 'Back', 'name_required': 'Enter your name', 'phone_required': 'Enter your phone number',
+      'accounts': 'Accounts', 'add_account': 'Add account', 'switch_acc': 'Switch', 'active_acc': 'Active', 'kitchen_panel': 'Business panel (web)',
     },
     'ko': {
       'home': '홈', 'calendar': '캘린더', 'finance': '재무', 'ai': 'AI', 'profile': '프로필',
@@ -115,6 +117,7 @@ class I18n {
       'forgot_password': '비밀번호를 잊으셨나요?', 'forgot_help': '고객센터에 문의하세요 — 관리자가 비밀번호를 재설정합니다.',
       'set_password_hint': '원하시면 비밀번호를 설정하세요 (다음 로그인용).',
       'back': '뒤로', 'name_required': '이름을 입력하세요', 'phone_required': '전화번호를 입력하세요',
+      'accounts': '계정', 'add_account': '계정 추가', 'switch_acc': '전환', 'active_acc': '활성', 'kitchen_panel': '비즈니스 패널 (웹)',
     },
   };
 }
