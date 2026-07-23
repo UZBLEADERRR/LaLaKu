@@ -15,13 +15,13 @@ dependencies:
   provider: ^6.1.2            # holat boshqaruvi (AuthProvider)
   shared_preferences: ^2.2.3 # token/sozlamalarni saqlash
   intl: ^0.19.0              # sana/valyuta formatlash
+  flutter_local_notifications: ^17.2.3  # lokal bildirishnomalar (maslahat, eslatma)
+  timezone: ^0.9.4                       # rejalashtirilgan bildirishnoma vaqti
+  flutter_timezone: ^3.0.1               # qurilma vaqt mintaqasini aniqlash
 
-  # Keyingi bosqichlarda qo'shiladigan tavsiya etilgan paketlar (skeletonda ishlatilmagan):
+  # Keyingi bosqichlarda qo'shiladigan paketlar:
   #   fl_chart          -> Finance/Analytics grafiklari (donut, bar)
-  #   flutter_local_notifications + timezone -> Shift/maosh eslatmalari (push)
   #   in_app_purchase   -> Google Play / App Store premium obuna (store billing)
-  #   home_widget        -> Android/iOS home screen widget
-  #   google_sign_in + googleapis -> Google Drive backup
 
 dev_dependencies:
   flutter_lints: ^4.0.0

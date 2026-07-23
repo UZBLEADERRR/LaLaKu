@@ -16,8 +16,7 @@ flutter doctor --android-licenses   # "y"
 cd flutter_app
 flutter create . --org com.albafit --project-name albafit
 
-# 3) android/app/src/main/AndroidManifest.xml ichida <application dan OLDIN:
-#    <uses-permission android:name="android.permission.INTERNET"/>
+# 3) android/app/src/main/AndroidManifest.xml sozlash (pastdagi "Bildirishnomalar" bo'limi)
 
 # 4) Backend manzili: lib/config.dart -> apiBaseUrl (Railway URL)
 flutter pub get
@@ -29,6 +28,30 @@ flutter build apk --release       # -> build/app/outputs/flutter-apk/app-release
 
 > iOS build faqat macOS + Xcode'da. Store premium uchun Apple/Google developer
 > akkaunti va native billing kerak (pastda).
+
+## Bildirishnomalar (AndroidManifest.xml)
+
+`flutter create` dan keyin `android/app/src/main/AndroidManifest.xml` da
+`<manifest>` ichiga, `<application>` dan **oldin** quyidagilarni qo'shing:
+
+```xml
+<uses-permission android:name="android.permission.INTERNET"/>
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+```
+
+`<application>` ichiga (rejalashtirilgan eslatmalar reboot'dan keyin ham ishlashi uchun):
+
+```xml
+<receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+  <intent-filter>
+    <action android:name="android.intent.action.BOOT_COMPLETED"/>
+  </intent-filter>
+</receiver>
+```
+
+AI ekranidagi "Kunlik maslahat bildirishnomasi" tugmasi ruxsat so'raydi va har
+kuni eng muhim moliyaviy maslahatni bildirishnoma qilib yuboradi.
 
 > Eslatma: iOS build faqat macOS + Xcode'da bo'ladi. Store'da premium (obuna)
 > uchun Apple/Google developer akkauntlari va native billing kerak (pastda).
@@ -115,7 +138,8 @@ Autentifikatsiya: `/api/login` (yoki `/api/register`) javobidagi `token` —
 | Shift start/stop + ish joyi tanlash | ✅ bor | `dashboard_screen.dart` + `api.punch` |
 | Break timer (tanaffus)           | ✅ bor | `dashboard_screen.dart` (lokal state) |
 | Skeleton loading + animatsiya    | ✅ bor | `widgets/ui.dart` |
-| AI moliyaviy yordamchi (API)     | ✅ bor | `/api/ai/advice` (PR keyingi ekran) |
+| AI moliyaviy yordamchi ekrani    | ✅ bor | `assistant_screen.dart` + `/api/ai/advice` |
+| Lokal bildirishnomalar           | ✅ bor | `notification_service.dart` (kunlik AI maslahati) |
 | Heatmap kalendar + BottomSheet   | 🔶 asosiy | `calendar_screen.dart` (to'liq keyingi PR) |
 | Pastki navbar                    | ✅ bor | `app_shell.dart` |
 | Monthly prediction / Overtime / Tax | ⬜ TODO | dashboard/analytics hisob-kitob |

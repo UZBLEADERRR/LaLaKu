@@ -3,10 +3,14 @@ import 'package:provider/provider.dart';
 
 import 'theme/app_theme.dart';
 import 'services/auth_provider.dart';
+import 'services/notification_service.dart';
 import 'app_shell.dart';
 import 'screens/login_screen.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Bildirishnomalarni fon rejimida ishga tushiramiz (bloklamaydi).
+  NotificationService.init();
   runApp(
     ChangeNotifierProvider(
       create: (_) => AuthProvider()..bootstrap(),
