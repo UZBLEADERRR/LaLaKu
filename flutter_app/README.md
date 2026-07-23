@@ -145,6 +145,7 @@ Autentifikatsiya: `/api/login` (yoki `/api/register`) javobidagi `token` —
 | Finance donut grafik + breakdown | ✅ bor | `finance_screen.dart` + `fl_chart` |
 | Maqsadlar (Goals, progress)      | ✅ bor | `finance_screen.dart` |
 | Kun izohlari (Notes)             | ✅ bor | `calendar_screen.dart` |
+| Premium obuna (Google Play/App Store) | ✅ bor | `purchase_service.dart` + `paywall_screen.dart` |
 | Monthly prediction / Overtime / Tax | ⬜ TODO | analytics ekrani |
 | Export (PDF/Excel/Image)         | ⬜ TODO | `printing` / `pdf` paketlari |
 | Push/lokal eslatmalar + haptika  | ⬜ TODO | `flutter_local_notifications`, `HapticFeedback` |
@@ -152,16 +153,26 @@ Autentifikatsiya: `/api/login` (yoki `/api/register`) javobidagi `token` —
 | Google Drive backup              | ⬜ TODO | `google_sign_in` + Drive API |
 | **Premium (Play/App Store)**     | ⬜ TODO | `in_app_purchase` — pastga qarang |
 
-## Premium (Google Play / App Store)
+## Premium obuna (Google Play / App Store)
 
-Store obunasi native billing orqali bo'ladi:
+Kod tayyor (`purchase_service.dart` + `paywall_screen.dart` + backend
+`POST /api/subscription/verify`). Do'kon tomonini sozlash:
 
-1. `in_app_purchase` paketini qo'shing.
-2. Play Console / App Store Connect'da obuna mahsulotlarini yarating
-   (masalan `albafit_premium_monthly`).
-3. Xaridni tekshirish uchun backendda endpoint qo'shing (server-side receipt
-   validation) va foydalanuvchining `paid_until`/premium holatini yangilang.
-4. Ilovada premium ekran/paywall'ni shu holatga bog'lang.
+1. **Play Console** (App Store Connect ham xuddi shunday) da ilovani yarating va
+   ikkita **obuna mahsuloti** qo'shing:
+   - `albafit_premium_monthly` (oylik)
+   - `albafit_premium_yearly` (yillik)
+   ID'lar `purchase_service.dart` dagi bilan bir xil bo'lsin.
+2. `flutter build appbundle` bilan `.aab` yasab, Play Console'ga (internal testing)
+   yuklang. Test uchun litsenziyalangan test-akkaunt qo'shing.
+3. Ilovada: **Profil → Premium** → paywall → mahsulotni tanlab sotib oling.
+   Xarid tokeni backend'ga yuboriladi, `paid_until` 1 oy/1 yilga uzayadi.
 
-Hozirgi veb ilovadagi "Premium yoqish/o'chirish" admin sozlamasi shu holatni
-boshqarish uchun ishlatilishi mumkin.
+> ⚠️ **Ishlab chiqarish xavfsizligi:** hozir backend token'ni faqat UNIQUE
+> sifatida saqlaydi (takroriy hisoblamaydi). Real muhitda `purchaseToken`'ni
+> **Google Play Developer API** (service account) orqali server tomonda
+> tekshirish kerak — `server.js` dagi `/api/subscription/verify` ichida
+> `GOOGLE_PLAY_SERVICE_ACCOUNT` bilan. Bu firibgarlikning oldini oladi.
+
+Web admin panelidagi "Premium yoqish/o'chirish" global tugmasi ham shu
+`paid_until` holatiga ta'sir qiladi.
