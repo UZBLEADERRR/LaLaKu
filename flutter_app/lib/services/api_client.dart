@@ -17,10 +17,26 @@ class ApiException implements Exception {
 /// Autentifikatsiya: login/register javobidagi `token` — `Authorization: Bearer` sifatida yuboriladi.
 class ApiClient {
   String? _token;
+  String? _baseUrl; // sozlamalardan (bo'lmasa AppConfig)
+
+  String get baseUrl => _baseUrl ?? AppConfig.apiBaseUrl;
 
   Future<void> loadToken() async {
     final sp = await SharedPreferences.getInstance();
     _token = sp.getString('token');
+    final saved = sp.getString('server_url');
+    if (saved != null && saved.trim().isNotEmpty) _baseUrl = saved.trim();
+  }
+
+  Future<void> setBaseUrl(String url) async {
+    final clean = url.trim().replaceAll(RegExp(r'/+$'), '');
+    _baseUrl = clean.isEmpty ? null : clean;
+    final sp = await SharedPreferences.getInstance();
+    if (_baseUrl == null) {
+      await sp.remove('server_url');
+    } else {
+      await sp.setString('server_url', _baseUrl!);
+    }
   }
 
   bool get isLoggedIn => _token != null;
@@ -35,7 +51,7 @@ class ApiClient {
     }
   }
 
-  Uri _u(String path) => Uri.parse('${AppConfig.apiBaseUrl}$path');
+  Uri _u(String path) => Uri.parse('$baseUrl$path');
 
   Map<String, String> get _headers => {
         'Content-Type': 'application/json',
@@ -168,8 +184,20 @@ class ApiClient {
 
   Future<void> deleteEntry(int id) => _delete('/api/my/entries/$id');
 
+  // ---- Valyuta kurslari (KRW bazasi) ----
+  Future<Map<String, double>> rates() async {
+    final j = await _get('/api/rates');
+    final raw = (j['rates'] ?? const {}) as Map<String, dynamic>;
+    return raw.map((k, v) => MapEntry(k, (v is num) ? v.toDouble() : double.tryParse('$v') ?? 1));
+  }
+
   // ---- AI moliyaviy yordamchi ----
   Future<Advice> advice(String lang) async => Advice.fromJson(await _get('/api/ai/advice?lang=$lang'));
+
+  Future<String> chat({required String message, required List<Map<String, String>> history, required String lang}) async {
+    final j = await _post('/api/ai/chat', {'message': message, 'history': history, 'lang': lang});
+    return (j['reply'] ?? '') as String;
+  }
 
   // ---- Obuna (Google Play / App Store) ----
   Future<Map<String, dynamic>> verifyPurchase({required String platform, required String productId, required String purchaseToken}) =>

@@ -5,7 +5,8 @@ import 'api_client.dart';
 
 /// Global holat: kirish/chiqish va joriy foydalanuvchi.
 class AuthProvider extends ChangeNotifier {
-  final ApiClient api = ApiClient();
+  final ApiClient api;
+  AuthProvider(this.api);
 
   Me? me;
   bool loading = true;

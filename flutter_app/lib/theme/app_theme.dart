@@ -63,4 +63,40 @@ class AppTheme {
       dividerColor: AppColors.line,
     );
   }
+
+  /// Yorug' tema (System/Light tanlansa). Bir xil accent (#7C5CFF).
+  static ThemeData get light {
+    final scheme = const ColorScheme.light(
+      primary: AppColors.primary,
+      secondary: AppColors.primary,
+      surface: Colors.white,
+      error: AppColors.danger,
+      onPrimary: Colors.white,
+      onSurface: Color(0xFF14161F),
+    );
+    return ThemeData(
+      useMaterial3: true,
+      brightness: Brightness.light,
+      scaffoldBackgroundColor: const Color(0xFFF4F5FA),
+      colorScheme: scheme,
+      splashFactory: InkRipple.splashFactory,
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.primary,
+          foregroundColor: Colors.white,
+          minimumSize: const Size.fromHeight(52),
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Gap.radiusSm)),
+          textStyle: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFFECEEF5),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(Gap.radiusSm), borderSide: BorderSide.none),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+      ),
+      dividerColor: const Color(0xFFECEEF5),
+    );
+  }
 }
