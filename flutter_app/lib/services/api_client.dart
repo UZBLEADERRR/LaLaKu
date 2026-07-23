@@ -170,4 +170,8 @@ class ApiClient {
 
   // ---- AI moliyaviy yordamchi ----
   Future<Advice> advice(String lang) async => Advice.fromJson(await _get('/api/ai/advice?lang=$lang'));
+
+  // ---- Obuna (Google Play / App Store) ----
+  Future<Map<String, dynamic>> verifyPurchase({required String platform, required String productId, required String purchaseToken}) =>
+      _post('/api/subscription/verify', {'platform': platform, 'productId': productId, 'purchaseToken': purchaseToken});
 }

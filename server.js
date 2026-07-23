@@ -188,6 +188,15 @@ async function initDb() {
       text TEXT NOT NULL,
       PRIMARY KEY (user_id, note_date)
     );
+    CREATE TABLE IF NOT EXISTS subscriptions (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      platform TEXT NOT NULL,
+      product_id TEXT NOT NULL,
+      purchase_token TEXT UNIQUE NOT NULL,
+      months INTEGER NOT NULL DEFAULT 1,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
 
   // Mavjud jamoa a'zoliklari uchun bog'langan ish joyi yozuvlari
@@ -1227,6 +1236,33 @@ app.get('/api/ai/advice', requireUser, wrap(async (req, res) => {
   const llm = await advisor.llmSummary(ctx, lang);
   if (llm) { result.summary = llm; result.aiPowered = true; } else { result.aiPowered = false; }
   res.json(result);
+}));
+
+// ================= OBUNA (Google Play / App Store) =================
+// Mahsulot -> obuna oylari
+const SUB_MONTHS = { albafit_premium_monthly: 1, albafit_premium_yearly: 12 };
+// Ilova xarididan keyin premiumni faollashtirish.
+// ESLATMA: ishlab chiqarishda purchaseToken'ni Google Play Developer API orqali
+// server tomonda tekshirish kerak (GOOGLE_PLAY_SERVICE_ACCOUNT). Hozircha token
+// yagona (UNIQUE) bo'lgani uchun takroriy hisoblanmaydi.
+app.post('/api/subscription/verify', requireUser, wrap(async (req, res) => {
+  const { platform, productId, purchaseToken } = req.body || {};
+  if (!platform || !productId || !purchaseToken) return fail(res, 400, "Ma'lumot to'liq emas", 'BAD_INPUT');
+  const months = SUB_MONTHS[productId];
+  if (!months) return fail(res, 400, "Noma'lum mahsulot", 'BAD_PRODUCT');
+  // Idempotent: shu token allaqachon qayd etilgan bo'lsa qayta hisoblamaymiz
+  const existing = (await pool.query(`SELECT id FROM subscriptions WHERE purchase_token = $1`, [String(purchaseToken)])).rows[0];
+  if (!existing) {
+    await pool.query(
+      `INSERT INTO subscriptions (user_id, platform, product_id, purchase_token, months) VALUES ($1, $2, $3, $4, $5)`,
+      [req.user.id, String(platform), String(productId), String(purchaseToken), months]);
+    await pool.query(
+      `UPDATE users SET paid_until = GREATEST(paid_until, now()) + ($1 || ' months')::interval WHERE id = $2`,
+      [months, req.user.id]);
+  }
+  const u = (await pool.query(`SELECT paid_until FROM users WHERE id = $1`, [req.user.id])).rows[0];
+  const daysLeft = Math.max(0, Math.ceil((new Date(u.paid_until) - new Date()) / 86400000));
+  res.json({ ok: true, active: true, paidUntil: u.paid_until, daysLeft });
 }));
 
 // ================= JAMOA (biznes akkaunt) =================

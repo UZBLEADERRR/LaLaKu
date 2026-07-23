@@ -38,4 +38,12 @@ class AuthProvider extends ChangeNotifier {
     me = null;
     notifyListeners();
   }
+
+  /// /api/me ni qayta yuklaydi (masalan, premium yoqilgandan keyin).
+  Future<void> refresh() async {
+    try {
+      me = await api.me();
+      notifyListeners();
+    } catch (_) {}
+  }
 }
