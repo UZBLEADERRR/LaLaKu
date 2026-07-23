@@ -12,6 +12,7 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const QRCode = require('qrcode');
 const { Pool } = require('pg');
+const advisor = require('./advisor');
 
 const PORT = process.env.PORT || 3000;
 const DEFAULT_TZ = process.env.TIMEZONE || 'Asia/Seoul';
@@ -1133,6 +1134,99 @@ app.put('/api/my/notes/:date', requireUser, wrap(async (req, res) => {
      ON CONFLICT (user_id, note_date) DO UPDATE SET text = EXCLUDED.text`,
     [req.user.id, date, text]);
   res.json({ ok: true });
+}));
+
+// ================= AI MOLIYAVIY YORDAMCHI =================
+// Bir oyning sof daromadi + overtime (har entry uchun stavka aniqlanadi)
+async function monthEarnings(userId, year, month) {
+  const { start, next } = monthBounds(year, month);
+  const r = await pool.query(
+    `SELECT e.work_date::text AS date,
+            ROUND(EXTRACT(EPOCH FROM (COALESCE(e.check_out, now()) - e.check_in)) / 60)::int AS minutes,
+            COALESCE(NULLIF(m.hourly_rate, 0), j.rate, 0)::float AS rate,
+            COALESCE(NULLIF(m.tax_percent, 0), j.tax_percent, 0)::float AS tax,
+            COALESCE(j.pay_type, 'hourly') AS pay_type,
+            COALESCE(j.id, 0) AS job_id
+     FROM entries e
+     LEFT JOIN jobs j ON j.id = e.job_id
+     LEFT JOIN memberships m ON m.org_id = e.org_id AND m.user_id = e.user_id
+     WHERE e.user_id = $1 AND e.work_date >= $2 AND e.work_date < $3
+       AND NOT (e.org_id IS NOT NULL AND e.job_id IS NULL)`,
+    [userId, start, next]);
+  let net = 0, minutes = 0;
+  const byDay = {};
+  const dailySeen = new Set();
+  for (const row of r.rows) {
+    minutes += row.minutes;
+    byDay[row.date] = (byDay[row.date] || 0) + row.minutes;
+    const factor = 1 - (row.tax || 0) / 100;
+    if (row.pay_type === 'daily') {
+      const key = `${row.date}_${row.job_id}`;
+      if (!dailySeen.has(key)) { dailySeen.add(key); net += row.rate * factor; }
+    } else {
+      net += (row.minutes / 60) * row.rate * factor;
+    }
+  }
+  let overtimeMin = 0;
+  for (const mins of Object.values(byDay)) overtimeMin += Math.max(0, mins - 480);
+  return { net: Math.round(net), minutes, days: Object.keys(byDay).length, overtimeMin };
+}
+
+async function financialContext(user, year, month) {
+  const prev = month === 1 ? { y: year - 1, m: 12 } : { y: year, m: month - 1 };
+  const [thisMonth, lastMonth, finRes, goalRes] = await Promise.all([
+    monthEarnings(user.id, year, month),
+    monthEarnings(user.id, prev.y, prev.m),
+    pool.query(`SELECT kind, title, amount::float, paid_amount::float AS paid, due_day, due_date::text AS due_date, active
+                FROM finance_items WHERE user_id = $1`, [user.id]),
+    pool.query(`SELECT id, title, target::float, saved::float FROM goals WHERE user_id = $1 ORDER BY id`, [user.id]),
+  ]);
+  const active = finRes.rows.filter((i) => i.active);
+  const rem = (i) => Math.max(0, i.amount - (i.paid || 0));
+  const income = active.filter((i) => i.kind === 'income').reduce((a, i) => a + i.amount, 0);
+  const expenses = active.filter((i) => i.kind === 'expense').reduce((a, i) => a + rem(i), 0);
+  const debts = active.filter((i) => i.kind === 'debt').reduce((a, i) => a + rem(i), 0);
+  // Eng yaqin qarz/chiqim muddati (kun)
+  const today = new Date();
+  const daysUntilDay = (dd) => {
+    if (!dd) return null;
+    let d = new Date(today.getFullYear(), today.getMonth(), dd);
+    if (d < new Date(today.getFullYear(), today.getMonth(), today.getDate())) d = new Date(today.getFullYear(), today.getMonth() + 1, dd);
+    return Math.round((d - new Date(today.getFullYear(), today.getMonth(), today.getDate())) / 86400000);
+  };
+  let nextDebt = null;
+  for (const i of active.filter((x) => x.kind !== 'income')) {
+    let days = null;
+    if (i.due_date) days = Math.round((new Date(i.due_date + 'T00:00:00') - today) / 86400000);
+    else if (i.due_day) days = daysUntilDay(i.due_day);
+    if (days !== null && days >= 0 && days <= 7 && (!nextDebt || days < nextDebt.days)) nextDebt = { title: i.title, days };
+  }
+  const totalIncome = thisMonth.net + income;
+  return {
+    name: user.name,
+    thisMonth,
+    lastMonth: { net: lastMonth.net, minutes: lastMonth.minutes, days: lastMonth.days },
+    finance: { income, expenses, debts, nextDebt },
+    goals: goalRes.rows,
+    stats: {
+      net: thisMonth.net,
+      hours: Math.round(thisMonth.minutes / 60 * 10) / 10,
+      days: thisMonth.days,
+      expenseRatio: totalIncome > 0 ? Math.round((expenses / totalIncome) * 100) : 0,
+      leftover: Math.round(totalIncome - expenses - debts),
+    },
+  };
+}
+
+app.get('/api/ai/advice', requireUser, wrap(async (req, res) => {
+  const now = new Date();
+  const lang = ['uz', 'en', 'ko'].includes(req.query.lang) ? req.query.lang : 'uz';
+  const ctx = await financialContext(req.user, now.getFullYear(), now.getMonth() + 1);
+  const result = advisor.generateAdvice(ctx, lang);
+  // Ixtiyoriy: Claude API bo'lsa tabiiy xulosa bilan almashtiramiz
+  const llm = await advisor.llmSummary(ctx, lang);
+  if (llm) { result.summary = llm; result.aiPowered = true; } else { result.aiPowered = false; }
+  res.json(result);
 }));
 
 // ================= JAMOA (biznes akkaunt) =================

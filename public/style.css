@@ -539,6 +539,20 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 .break-bar { border-color: var(--amber); }
 .break-bar #break-time { color: var(--amber); }
 
+/* AI moliyaviy yordamchi */
+.ai-card { cursor: pointer; background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 14%, var(--card)), var(--card) 70%); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); }
+.ai-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.ai-avatar { width: 34px; height: 34px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; font-size: 18px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: 0 4px 12px color-mix(in srgb, var(--accent) 40%, transparent); }
+.ai-ttl { font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 7px; }
+.ai-badge { font-size: 10px; font-weight: 800; color: #fff; background: var(--accent); border-radius: 6px; padding: 1px 6px; letter-spacing: .5px; }
+.ai-summary { font-size: 14px; font-weight: 600; line-height: 1.45; color: var(--text); margin-bottom: 12px; }
+.ai-tip { display: flex; gap: 9px; align-items: flex-start; font-size: 13px; font-weight: 600; line-height: 1.4; padding: 9px 12px; border-radius: 13px; background: var(--bg); margin-bottom: 8px; }
+.ai-tip span:first-child { flex-shrink: 0; }
+.ai-tip.good { border-left: 3px solid var(--green); }
+.ai-tip.warn { border-left: 3px solid var(--amber); }
+.ai-tip.info { border-left: 3px solid var(--accent); }
+.ai-more { background: none; border: none; color: var(--accent); font-weight: 800; font-size: 13.5px; padding: 4px 2px; cursor: pointer; }
+
 /* Maqsadlar (goals) */
 .goal-row { padding: 12px 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
 .goal-row:last-child { border-bottom: none; }

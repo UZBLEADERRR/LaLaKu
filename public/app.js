@@ -1597,10 +1597,32 @@
     return null;
   }
 
+  // AI moliyaviy yordamchi kartasi (moliya ekrani tepasida)
+  function aiCardHtml(advice) {
+    if (!advice) return '';
+    const top = (advice.tips || []).slice(0, 2);
+    return `<div class="card ai-card" id="ai-card">
+      <div class="ai-head">
+        <span class="ai-avatar">✨</span>
+        <div class="ai-ttl"><b>${t('aiAssistant')}</b>${advice.aiPowered ? ` <span class="ai-badge">AI</span>` : ''}</div>
+      </div>
+      <p class="ai-summary">${esc(advice.summary)}</p>
+      ${top.map((tp) => `<div class="ai-tip ${tp.severity}"><span>${tp.icon}</span><span>${esc(tp.text)}</span></div>`).join('')}
+      ${(advice.tips || []).length > 2 ? `<button class="ai-more" id="ai-more">${t('aiMore', advice.tips.length - 2)}</button>` : ''}
+    </div>`;
+  }
+  function openAdviceSheet(advice) {
+    const sheet = openSheet(`
+      <div class="sheet-head"><div class="sheet-title">✨ ${t('aiAssistant')}</div><button class="modal-close" id="sh-close">✕</button></div>
+      <p class="ai-summary" style="margin-bottom:14px">${esc(advice.summary)}</p>
+      ${(advice.tips || []).map((tp) => `<div class="ai-tip ${tp.severity}"><span>${tp.icon}</span><span>${esc(tp.text)}</span></div>`).join('')}`);
+    sheet.querySelector('#sh-close').addEventListener('click', closeSheet);
+  }
+
   async function renderFinance() {
     const now = new Date();
     const year = now.getFullYear(), month = now.getMonth() + 1;
-    let items, summary, jobs, goals = [];
+    let items, summary, jobs, goals = [], advice = null;
     try {
       [items, summary, jobs, goals] = await Promise.all([
         api('/api/finance'),
@@ -1608,6 +1630,7 @@
         api('/api/jobs'),
         api('/api/goals'),
       ]);
+      advice = await api(`/api/ai/advice?lang=${LANG}`).catch(() => null);
     } catch (ex) {
       if (ex.code === 'AUTH') return renderAuth();
       toast(terr(ex), 'error');
@@ -1703,6 +1726,8 @@
         </div>
       </div>
 
+      ${aiCardHtml(advice)}
+
       ${finChart}
 
       <div class="card remain-card">
@@ -1768,6 +1793,8 @@
     bindCurSel(renderWorker);
     document.getElementById('forecast-btn').addEventListener('click', () => { state.view = 'forecast'; renderWorker(); });
     document.getElementById('payday-row').addEventListener('click', () => askPayday(renderWorker));
+    document.getElementById('ai-more')?.addEventListener('click', () => openAdviceSheet(advice));
+    document.getElementById('ai-card')?.addEventListener('click', (ev) => { if (!ev.target.closest('.ai-more')) openAdviceSheet(advice); });
 
     // Maqsadlar
     document.getElementById('goal-add').addEventListener('click', () => openGoalModal(null, renderWorker));
