@@ -539,6 +539,16 @@ table.summary tbody tr:hover td.has { background-color: #d9f2e6; }
 .break-bar { border-color: var(--amber); }
 .break-bar #break-time { color: var(--amber); }
 
+/* AI chat */
+.chat-area { max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px 12px; }
+.chat-msg { max-width: 82%; padding: 10px 13px; border-radius: 16px; font-size: 13.5px; font-weight: 600; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+.chat-msg.bot { align-self: flex-start; background: var(--bg); border-bottom-left-radius: 5px; }
+.chat-msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 5px; }
+.chat-msg.typing { opacity: .6; }
+.chat-input { display: flex; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
+.chat-input input { flex: 1; margin: 0; }
+.chat-input .btn { width: 46px; min-width: 46px; height: 46px; margin: 0; padding: 0; border-radius: 14px; font-size: 18px; }
+
 /* AI moliyaviy yordamchi */
 .ai-card { cursor: pointer; background: linear-gradient(150deg, color-mix(in srgb, var(--accent) 14%, var(--card)), var(--card) 70%); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); }
 .ai-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
