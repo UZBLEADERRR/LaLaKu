@@ -180,9 +180,9 @@ class StatTile extends StatelessWidget {
 /// Progress bar (maqsad, byudjet uchun).
 class ProgressBar extends StatelessWidget {
   final double value; // 0..1
-  final Color color;
+  final Color? color;
   final double height;
-  const ProgressBar({super.key, required this.value, this.color = AppColors.primary, this.height = 10});
+  const ProgressBar({super.key, required this.value, this.color, this.height = 10});
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
@@ -196,7 +196,7 @@ class ProgressBar extends StatelessWidget {
               duration: const Duration(milliseconds: 500),
               curve: Curves.easeOutCubic,
               height: height,
-              decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(height)),
+              decoration: BoxDecoration(color: color ?? AppColors.primary, borderRadius: BorderRadius.circular(height)),
             ),
           ),
         ],

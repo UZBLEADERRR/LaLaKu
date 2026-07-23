@@ -45,12 +45,14 @@ class AlbaFitApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Sozlamalar o'zgarganda til/valyuta yangilanishi uchun kuzatamiz.
-    context.watch<SettingsProvider>();
+    // Sozlamalar o'zgarganda til/valyuta/mavzu/accent yangilanishi uchun kuzatamiz.
+    final settings = context.watch<SettingsProvider>();
     return MaterialApp(
       title: 'AlbaFit',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.dark,
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: settings.themeMode,
       home: const _Root(),
     );
   }

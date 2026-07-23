@@ -254,7 +254,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ),
         const SizedBox(height: Gap.sm),
         if (_loading)
-          const Center(child: Padding(padding: EdgeInsets.all(Gap.xl), child: CircularProgressIndicator(color: AppColors.primary)))
+          Center(child: Padding(padding: EdgeInsets.all(Gap.xl), child: CircularProgressIndicator(color: AppColors.primary)))
         else if (_tableView)
           _tableCard()
         else

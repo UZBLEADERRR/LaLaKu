@@ -75,7 +75,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                   width: 76,
                   height: 76,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(colors: [AppColors.primary, Color(0xFF9B7DFF)]),
+                    gradient: LinearGradient(colors: [AppColors.primary, Color(0xFF9B7DFF)]),
                     borderRadius: BorderRadius.circular(24),
                     boxShadow: [BoxShadow(color: AppColors.primary.withOpacity(0.4), blurRadius: 24, offset: const Offset(0, 10))],
                   ),
@@ -112,7 +112,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
 
               // Mahsulotlar
               if (_service.loading)
-                const Center(child: Padding(padding: EdgeInsets.all(Gap.lg), child: CircularProgressIndicator(color: AppColors.primary)))
+                Center(child: Padding(padding: EdgeInsets.all(Gap.lg), child: CircularProgressIndicator(color: AppColors.primary)))
               else if (!_service.available)
                 const AppCard(child: Text('Do\'kon hozircha mavjud emas. Keyinroq urinib ko\'ring.', style: TextStyle(color: AppColors.textSecondary)))
               else if (_service.products.isEmpty)
@@ -140,7 +140,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                                 ],
                               ),
                             ),
-                            Text(p.price, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.primary)),
+                            Text(p.price, style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.primary)),
                           ],
                         ),
                       ),
@@ -148,7 +148,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
 
               if (_service.purchasing) ...[
                 const SizedBox(height: Gap.md),
-                const Center(child: CircularProgressIndicator(color: AppColors.primary)),
+                Center(child: CircularProgressIndicator(color: AppColors.primary)),
               ],
               if (_service.error != null) ...[
                 const SizedBox(height: Gap.md),

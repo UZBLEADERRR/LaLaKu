@@ -121,6 +121,8 @@ class ProfileScreen extends StatelessWidget {
               _divider(),
               _row(Icons.currency_exchange, tr('currency'), settings.currency, () => _pickCurrency(context, settings)),
               _divider(),
+              _appearanceRow(context, settings),
+              _divider(),
               _row(Icons.notifications_none, tr('notifications'), '', () => _notifications(context)),
               _divider(),
               _row(Icons.dns_outlined, tr('server'), '', () => _serverUrl(context, settings)),
@@ -176,10 +178,89 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
+  Widget _appearanceRow(BuildContext context, SettingsProvider s) => ListTile(
+        leading: const Icon(Icons.palette_outlined, color: AppColors.textSecondary),
+        title: Text(tr('appearance'), style: const TextStyle(fontWeight: FontWeight.w600)),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 18, height: 18, decoration: BoxDecoration(color: s.accent, shape: BoxShape.circle)),
+          const SizedBox(width: 8),
+          const Icon(Icons.chevron_right, color: AppColors.textSecondary),
+        ]),
+        onTap: () => _pickAppearance(context, s),
+      );
+
+  void _pickAppearance(BuildContext context, SettingsProvider s) {
+    _sheet(context, tr('appearance'), [
+      // Mavzu (qorong'i / yorug')
+      Text(tr('theme'), style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w700)),
+      const SizedBox(height: Gap.sm),
+      StatefulBuilder(
+        builder: (ctx, setSt) => Row(
+          children: [
+            for (final m in [ThemeMode.dark, ThemeMode.light])
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: m == ThemeMode.dark ? Gap.sm : 0),
+                  child: GestureDetector(
+                    onTap: () {
+                      s.setTheme(m);
+                      setSt(() {});
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: AppColors.surface2,
+                        borderRadius: BorderRadius.circular(Gap.radiusSm),
+                        border: Border.all(color: s.themeMode == m ? AppColors.primary : AppColors.line, width: s.themeMode == m ? 2 : 1),
+                      ),
+                      child: Center(
+                        child: Text(m == ThemeMode.dark ? '🌙  ${tr('theme_dark')}' : '☀️  ${tr('theme_light')}',
+                            style: const TextStyle(fontWeight: FontWeight.w700)),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      const SizedBox(height: Gap.lg),
+      // Accent ranglar
+      Text(tr('theme'), style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5, fontWeight: FontWeight.w700)),
+      const SizedBox(height: Gap.sm),
+      StatefulBuilder(
+        builder: (ctx, setSt) => Wrap(
+          spacing: 14,
+          runSpacing: 14,
+          children: SettingsProvider.accentPresets.values.map((c) {
+            final selected = s.accent.value == c.value;
+            return GestureDetector(
+              onTap: () {
+                s.setAccent(c);
+                setSt(() {});
+              },
+              child: Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: c,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: selected ? Colors.white : Colors.transparent, width: 3),
+                  boxShadow: [BoxShadow(color: c.withOpacity(0.5), blurRadius: 10)],
+                ),
+                child: selected ? const Icon(Icons.check, color: Colors.white, size: 22) : null,
+              ),
+            );
+          }).toList(),
+        ),
+      ),
+    ]);
+  }
+
   void _pickLanguage(BuildContext context, SettingsProvider s) {
     _sheet(context, tr('language'), I18n.supported.entries.map((e) => ListTile(
           title: Text(e.value),
-          trailing: s.lang == e.key ? const Icon(Icons.check, color: AppColors.primary) : null,
+          trailing: s.lang == e.key ? Icon(Icons.check, color: AppColors.primary) : null,
           onTap: () {
             s.setLang(e.key);
             Navigator.pop(context);
@@ -191,7 +272,7 @@ class ProfileScreen extends StatelessWidget {
     _sheet(context, tr('currency'), SettingsProvider.currencySymbols.entries.map((e) => ListTile(
           leading: Text(e.value, style: const TextStyle(fontSize: 18)),
           title: Text(e.key),
-          trailing: s.currency == e.key ? const Icon(Icons.check, color: AppColors.primary) : null,
+          trailing: s.currency == e.key ? Icon(Icons.check, color: AppColors.primary) : null,
           onTap: () {
             s.setCurrency(e.key);
             Navigator.pop(context);
@@ -253,7 +334,7 @@ class ProfileScreen extends StatelessWidget {
           children: [
             Container(
               width: 64, height: 64,
-              decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primary, Color(0xFF9B7DFF)]), borderRadius: BorderRadius.circular(20)),
+              decoration: BoxDecoration(gradient: LinearGradient(colors: [AppColors.primary, Color(0xFF9B7DFF)]), borderRadius: BorderRadius.circular(20)),
               child: const Center(child: Text('⏱', style: TextStyle(fontSize: 30))),
             ),
             const SizedBox(height: Gap.md),

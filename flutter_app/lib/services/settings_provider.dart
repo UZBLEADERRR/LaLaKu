@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../i18n.dart';
+import '../theme/app_colors.dart';
 import '../widgets/ui.dart';
 import 'api_client.dart';
 
@@ -15,10 +16,23 @@ class SettingsProvider extends ChangeNotifier {
     'INR': '₹', 'CNY': '¥', 'KZT': '₸',
   };
 
+  /// Accent rang presetlari (webdagi ACCENT_PRESETS bilan bir xil).
+  static const accentPresets = <String, Color>{
+    'Binafsha': Color(0xFF7C5CFF),
+    'Ko\'k': Color(0xFF3B82F6),
+    'Yashil': Color(0xFF24D17E),
+    'Feruza': Color(0xFF14B8A6),
+    'Pushti': Color(0xFFFF5C9D),
+    'Qizil': Color(0xFFFF5C7A),
+    'To\'q sariq': Color(0xFFFF8A3D),
+    'Oltin': Color(0xFFFFB547),
+  };
+
   String lang = 'uz';
   String currency = 'KRW';
   ThemeMode themeMode = ThemeMode.dark;
   String serverUrl = '';
+  Color accent = Palette.defaultAccent;
   Map<String, double> rates = const {'KRW': 1};
 
   ThemeMode get theme => themeMode;
@@ -29,6 +43,9 @@ class SettingsProvider extends ChangeNotifier {
     currency = sp.getString('currency') ?? 'KRW';
     themeMode = (sp.getString('theme') == 'light') ? ThemeMode.light : ThemeMode.dark;
     serverUrl = sp.getString('server_url') ?? '';
+    final accentHex = sp.getInt('accent');
+    if (accentHex != null) accent = Color(accentHex);
+    Palette.accent = accent;
     I18n.lang = lang;
     _applyMoney();
     notifyListeners();
@@ -58,6 +75,13 @@ class SettingsProvider extends ChangeNotifier {
     currency = v;
     (await SharedPreferences.getInstance()).setString('currency', v);
     _applyMoney();
+    notifyListeners();
+  }
+
+  Future<void> setAccent(Color c) async {
+    accent = c;
+    Palette.accent = c;
+    (await SharedPreferences.getInstance()).setInt('accent', c.value);
     notifyListeners();
   }
 
