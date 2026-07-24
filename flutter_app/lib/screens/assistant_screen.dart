@@ -158,7 +158,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
             children: [
               Container(
                 width: 40, height: 40,
-                decoration: BoxDecoration(gradient: const LinearGradient(colors: [AppColors.primary, Color(0xFF9B7DFF)]), borderRadius: BorderRadius.circular(13)),
+                decoration: BoxDecoration(gradient: LinearGradient(colors: [AppColors.primary, Color(0xFF9B7DFF)]), borderRadius: BorderRadius.circular(13)),
                 child: const Center(child: Text('✨', style: TextStyle(fontSize: 20))),
               ),
               const SizedBox(width: Gap.sm),
@@ -177,7 +177,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
         // Xabarlar
         Expanded(
           child: _loading
-              ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+              ? Center(child: CircularProgressIndicator(color: AppColors.primary))
               : ListView.builder(
                   controller: _scroll,
                   padding: const EdgeInsets.all(Gap.md),

@@ -321,7 +321,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 const SizedBox(height: Gap.xs),
                 Text(fmtWon(_todayEarnings),
-                    style: const TextStyle(fontSize: 38, fontWeight: FontWeight.w800, letterSpacing: -1, color: AppColors.primary, fontFeatures: [FontFeature.tabularFigures()])),
+                    style: TextStyle(fontSize: 38, fontWeight: FontWeight.w800, letterSpacing: -1, color: AppColors.primary, fontFeatures: [FontFeature.tabularFigures()])),
                 const SizedBox(height: Gap.lg),
                 Row(
                   children: [
@@ -425,7 +425,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                     margin: const EdgeInsets.only(left: 6),
                                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                     decoration: BoxDecoration(color: AppColors.primary.withOpacity(0.16), borderRadius: BorderRadius.circular(6)),
-                                    child: const Text('Jamoa', style: TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.w800)),
+                                    child: Text('Jamoa', style: TextStyle(color: AppColors.primary, fontSize: 10, fontWeight: FontWeight.w800)),
                                   ),
                                 ],
                               ),

@@ -1,12 +1,20 @@
 import 'package:flutter/material.dart';
 
+/// Joriy accent rang (foydalanuvchi tanlashi mumkin) — runtime holder.
+class Palette {
+  static const defaultAccent = Color(0xFF7C5CFF);
+  static Color accent = defaultAccent;
+  /// Gradient ikkinchi rang — accent'dan biroz ochiqroq.
+  static Color get accent2 => Color.lerp(accent, Colors.white, 0.22)!;
+}
+
 /// AlbaFit dizayn palitrasi — premium fintech, qora (Linear / Revolut uslubi).
-/// Bitta accent rang (#7C5CFF), yumshoq soyalar, glassmorphismsiz.
+/// `primary` — foydalanuvchi tanlagan accent (Palette).
 abstract class AppColors {
   static const bg = Color(0xFF0F1117); // Background
   static const surface = Color(0xFF171A22); // Surface (kartalar)
   static const surface2 = Color(0xFF1E222C); // ko'tarilgan yuza
-  static const primary = Color(0xFF7C5CFF); // Primary accent
+  static Color get primary => Palette.accent; // Primary accent (dinamik)
   static const success = Color(0xFF24D17E); // Success (maosh, +)
   static const danger = Color(0xFFFF5C7A); // Danger (chiqim, stop)
   static const warning = Color(0xFFFFB547); // Warning (overtime, kechikkan)

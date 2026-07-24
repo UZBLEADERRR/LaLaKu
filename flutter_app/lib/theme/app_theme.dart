@@ -15,7 +15,7 @@ abstract class Gap {
 /// Material 3, dark, bitta accent. Yumshoq soyalar, keng bo'shliq, toza tipografiya.
 class AppTheme {
   static ThemeData get dark {
-    final scheme = const ColorScheme.dark(
+    final scheme = ColorScheme.dark(
       primary: AppColors.primary,
       secondary: AppColors.primary,
       surface: AppColors.surface,
@@ -66,7 +66,7 @@ class AppTheme {
 
   /// Yorug' tema (System/Light tanlansa). Bir xil accent (#7C5CFF).
   static ThemeData get light {
-    final scheme = const ColorScheme.light(
+    final scheme = ColorScheme.light(
       primary: AppColors.primary,
       secondary: AppColors.primary,
       surface: Colors.white,
