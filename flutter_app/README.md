@@ -57,6 +57,21 @@ flutter build apk --release       # -> build/app/outputs/flutter-apk/app-release
 AI ekranidagi "Kunlik maslahat bildirishnomasi" tugmasi ruxsat so'raydi va har
 kuni eng muhim moliyaviy maslahatni bildirishnoma qilib yuboradi.
 
+## CV rasm yuklash (image_picker)
+
+**Profil → CV / Rezyume** — rasm yuklash + professional PDF eksport. Android 13+
+da galereya uchun qo'shimcha ruxsat shart emas (tizim photo picker). iOS uchun
+`ios/Runner/Info.plist` ga qo'shing:
+
+```xml
+<key>NSPhotoLibraryUsageDescription</key>
+<string>CV uchun rasm tanlash</string>
+```
+
+PDF eksport (`printing`) alohida ruxsat talab qilmaydi — ulashish/chop etish
+tizim oynasini ochadi. PDF matn shrifti Google Fonts (Noto Sans) dan yuklanadi
+(internet bo'lmasa standart shriftga qaytadi).
+
 > Eslatma: iOS build faqat macOS + Xcode'da bo'ladi. Store'da premium (obuna)
 > uchun Apple/Google developer akkauntlari va native billing kerak (pastda).
 
@@ -151,8 +166,9 @@ Autentifikatsiya: `/api/login` (yoki `/api/register`) javobidagi `token` —
 | Maqsadlar (Goals, progress)      | ✅ bor | `finance_screen.dart` |
 | Kun izohlari (Notes)             | ✅ bor | `calendar_screen.dart` |
 | Premium obuna (Google Play/App Store) | ✅ bor | `purchase_service.dart` + `paywall_screen.dart` |
+| CV / Rezyume (rasm + PDF eksport) | ✅ bor | `cv_screen.dart` (`image_picker` + `pdf` + `printing`) |
+| Daromad hisoboti (PDF eksport)   | ✅ bor | `cv_screen.dart` → "Daromad hisoboti (PDF)" |
 | Monthly prediction / Overtime / Tax | ⬜ TODO | analytics ekrani |
-| Export (PDF/Excel/Image)         | ⬜ TODO | `printing` / `pdf` paketlari |
 | Push/lokal eslatmalar + haptika  | ⬜ TODO | `flutter_local_notifications`, `HapticFeedback` |
 | Home widget                      | ⬜ TODO | `home_widget` |
 | Google Drive backup              | ⬜ TODO | `google_sign_in` + Drive API |

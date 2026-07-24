@@ -44,6 +44,11 @@ class I18n {
       'set_password_hint': "Xohlasangiz parol qo'ying (keyingi kirishlar uchun).",
       'back': 'Orqaga', 'name_required': 'Ismingizni kiriting', 'phone_required': 'Telefon raqamni kiriting',
       'accounts': 'Akkauntlar', 'add_account': "Akkaunt qo'shish", 'switch_acc': "O'tish", 'active_acc': 'Faol', 'kitchen_panel': 'Oshxona paneli (web)',
+      'cv': 'CV / Rezyume', 'cv_sub': 'Professional rezyume — PDF', 'cv_photo': 'Rasm', 'cv_pick_photo': 'Rasm tanlash',
+      'cv_position': 'Lavozim / Kasb', 'cv_email': 'Email', 'cv_address': 'Manzil',
+      'cv_about': "O'zingiz haqingizda", 'cv_skills': "Ko'nikmalar (vergul bilan)", 'cv_experience': 'Kasbiy tajriba',
+      'cv_export': 'PDF eksport', 'cv_report': 'Daromad hisoboti (PDF)', 'cv_no_exp': "Ish joyi qo'shsangiz shu yerda ko'rinadi",
+      'cv_generating': 'PDF tayyorlanmoqda...', 'report_title': 'Daromad hisoboti', 'total_hours': 'Jami soat', 'contact': 'Aloqa',
     },
     'en': {
       'home': 'Home', 'calendar': 'Calendar', 'finance': 'Finance', 'ai': 'AI', 'profile': 'Profile',
@@ -81,6 +86,11 @@ class I18n {
       'set_password_hint': 'Set a password if you like (for future logins).',
       'back': 'Back', 'name_required': 'Enter your name', 'phone_required': 'Enter your phone number',
       'accounts': 'Accounts', 'add_account': 'Add account', 'switch_acc': 'Switch', 'active_acc': 'Active', 'kitchen_panel': 'Business panel (web)',
+      'cv': 'CV / Resume', 'cv_sub': 'Professional resume — PDF', 'cv_photo': 'Photo', 'cv_pick_photo': 'Choose photo',
+      'cv_position': 'Position / Title', 'cv_email': 'Email', 'cv_address': 'Address',
+      'cv_about': 'About you', 'cv_skills': 'Skills (comma separated)', 'cv_experience': 'Work experience',
+      'cv_export': 'Export PDF', 'cv_report': 'Earnings report (PDF)', 'cv_no_exp': 'Add a workplace and it will appear here',
+      'cv_generating': 'Generating PDF...', 'report_title': 'Earnings report', 'total_hours': 'Total hours', 'contact': 'Contact',
     },
     'ko': {
       'home': '홈', 'calendar': '캘린더', 'finance': '재무', 'ai': 'AI', 'profile': '프로필',
@@ -118,6 +128,11 @@ class I18n {
       'set_password_hint': '원하시면 비밀번호를 설정하세요 (다음 로그인용).',
       'back': '뒤로', 'name_required': '이름을 입력하세요', 'phone_required': '전화번호를 입력하세요',
       'accounts': '계정', 'add_account': '계정 추가', 'switch_acc': '전환', 'active_acc': '활성', 'kitchen_panel': '비즈니스 패널 (웹)',
+      'cv': 'CV / 이력서', 'cv_sub': '전문 이력서 — PDF', 'cv_photo': '사진', 'cv_pick_photo': '사진 선택',
+      'cv_position': '직무 / 직책', 'cv_email': '이메일', 'cv_address': '주소',
+      'cv_about': '자기소개', 'cv_skills': '역량 (쉼표로 구분)', 'cv_experience': '경력',
+      'cv_export': 'PDF 내보내기', 'cv_report': '수입 보고서 (PDF)', 'cv_no_exp': '근무지를 추가하면 여기에 표시됩니다',
+      'cv_generating': 'PDF 생성 중...', 'report_title': '수입 보고서', 'total_hours': '총 시간', 'contact': '연락처',
     },
   };
 }

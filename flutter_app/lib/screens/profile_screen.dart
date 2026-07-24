@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/ui.dart';
 import 'paywall_screen.dart';
 import 'web_panel_screen.dart';
+import 'cv_screen.dart';
 
 /// Profil — ishlaydigan sozlamalar: Server, Til, Valyuta, Bildirishnoma, Premium.
 class ProfileScreen extends StatelessWidget {
@@ -104,6 +105,33 @@ class ProfileScreen extends StatelessWidget {
                       : TextButton(onPressed: () => auth.switchAccount(i), child: Text(tr('switch_acc'))),
                 ),
               ],
+            ],
+          ),
+        ),
+        const SizedBox(height: Gap.lg),
+
+        // CV / Rezyume
+        AppCard(
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CvScreen())),
+          gradient: LinearGradient(
+            colors: [AppColors.primary.withOpacity(0.18), AppColors.surface],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          child: Row(
+            children: [
+              const Text('📄', style: TextStyle(fontSize: 26)),
+              const SizedBox(width: Gap.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(tr('cv'), style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    Text(tr('cv_sub'), style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+                  ],
+                ),
+              ),
+              const Icon(Icons.chevron_right, color: AppColors.textSecondary),
             ],
           ),
         ),
